@@ -81,3 +81,69 @@ SPSAbstractProcess >> terminate [
 	
 	self subclassResponsibility
 ]
+
+{ #category : #private }
+SPSAbstractProcess >> argsBlob [
+
+	"Answer the command and its arguments as a single NUL-separated blob
+	 (see SPSSpawnLibrary), matching the argv expected by the native shim."
+
+	^ String streamContents: [ :stream |
+		| addArgument |
+		addArgument := [ :aString | stream nextPutAll: aString; nextPut: Character null ].
+		addArgument value: self configuration command.
+		self configuration arguments do: addArgument ]
+]
+
+{ #category : #private }
+SPSAbstractProcess >> closeAllPipeFds: aCollection [
+
+	aCollection do: [ :fd | self closeFd: fd ]
+]
+
+{ #category : #private }
+SPSAbstractProcess >> closeFd: anInteger [
+
+	anInteger ifNotNil: [ LibC uniqueInstance close: anInteger ]
+]
+
+{ #category : #private }
+SPSAbstractProcess >> newPipeFds [
+
+	"Create an anonymous pipe and answer an array { readFd. writeFd }, or nil
+	 if the pipe cannot be created."
+
+	| buffer |
+	buffer := ExternalAddress allocate: 8.
+	^ [
+		(LibC uniqueInstance createPipe: buffer) = 0
+			ifTrue: [ {
+				buffer integerAt: 1 size: 4 signed: true.
+				buffer integerAt: 5 size: 4 signed: true } ]
+			ifFalse: [ nil ] ]
+		ensure: [ buffer free ]
+]
+
+{ #category : #private }
+SPSAbstractProcess >> cStringBytesFrom: aByteArray [
+
+	"Answer the bytes of a NUL-terminated C string stored in aByteArray, up to
+	 but excluding the first NUL."
+
+	| index |
+	index := aByteArray indexOf: 0.
+	index = 0 ifTrue: [ ^ #() ].
+	^ aByteArray first: index - 1
+]
+
+{ #category : #private }
+SPSAbstractProcess >> decodeExitCodeFromWaitStatus: anInteger [
+
+	"Decode a child wait status following the POSIX WIFEXITED/WEXITSTATUS
+	 rules: a normal exit yields the low 8 bits of the shifted status; any
+	 other termination (e.g. killed by a signal) has no simple exit code, so
+	 we answer nil (matching GLib's behaviour of reporting no exit code)."
+
+	(anInteger bitAnd: 16r7F) = 0 ifTrue: [ ^ (anInteger bitShift: -8) bitAnd: 16rFF ].
+	^ nil
+]

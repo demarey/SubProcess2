@@ -1,0 +1,5 @@
+native/libsps_spawn.dylib
+native/libsps_spawn.so
+native/sps_spawn.dll
+native/sps_spawn_selftest
+native/sps_spawn_selftest.exe

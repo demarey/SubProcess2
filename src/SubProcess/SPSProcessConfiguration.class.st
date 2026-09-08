@@ -16,9 +16,6 @@ Class {
 		'encoding',
 		'collectsOutput'
 	],
-	#pools : [
-		'GSpawnFlags'
-	],
 	#category : #SubProcess
 }
 
