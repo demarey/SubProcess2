@@ -62,7 +62,7 @@ SPSSpawnLibrary >> fdSetNonBlocking: aFd [
 { #category : #ffi }
 SPSSpawnLibrary >> killPid: aToken [
 
-	^ self ffiCall: #(int sps_kill(long long aToken))
+	^ self ffiCall: #(int sps_kill(longlong aToken))
 ]
 
 { #category : #ffi }
@@ -85,7 +85,7 @@ SPSSpawnLibrary >> read: aFd buffer: aBuffer size: aCount [
 { #category : #ffi }
 SPSSpawnLibrary >> spawnStdin: aStdinFd stdout: aStdoutFd stderr: aStderrFd args: anArgsBlob argsLength: anArgsLength cwd: aCwdString error: anErrBuf errorLength: anErrBufLength [
 
-	^ self ffiCall: #(long long sps_spawn(size_t aStdinFd, size_t aStdoutFd, size_t aStderrFd, const char* anArgsBlob, size_t anArgsLength, const char* aCwdString, char* anErrBuf, size_t anErrBufLength))
+	^ self ffiCall: #(longlong sps_spawn(size_t aStdinFd, size_t aStdoutFd, size_t aStderrFd, const char* anArgsBlob, size_t anArgsLength, const char* aCwdString, char* anErrBuf, size_t anErrBufLength))
 ]
 
 { #category : #ffi }
@@ -96,7 +96,7 @@ SPSSpawnLibrary >> waitPid: aToken block: aBlock statusBuffer: aStatusBuffer [
 	 running in poll mode (aBlock false), and -1 on error. aBlock true blocks
 	 until exit."
 
-	^ self ffiCall: #(int sps_wait(long long aToken, int aBlock, int* aStatusBuffer))
+	^ self ffiCall: #(int sps_wait(longlong aToken, int aBlock, int* aStatusBuffer))
 ]
 
 { #category : #ffi }
