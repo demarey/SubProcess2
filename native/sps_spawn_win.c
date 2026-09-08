@@ -20,6 +20,65 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Registry of live child processes keyed by OS pid.
+ *
+ * The handle returned by CreateProcess is kept open for the lifetime of the
+ * child instead of being closed after spawn, because once a Windows process
+ * exits and its last handle is closed the process object is destroyed and it
+ * can no longer be re-opened by pid. sps_wait and sps_kill must therefore use
+ * the retained handle (via this registry) rather than OpenProcess. */
+#define SPS_MAX_PROC 1024
+typedef struct
+{
+  intptr_t pid;
+  HANDLE handle;
+} sps_proc_entry;
+
+static sps_proc_entry sps_procs[SPS_MAX_PROC];
+static DWORD sps_proc_count;
+
+static sps_proc_entry *
+sps_proc_find (intptr_t pid)
+{
+  DWORD i;
+  for (i = 0; i < sps_proc_count; i++)
+    if (sps_procs[i].pid == pid)
+      return &sps_procs[i];
+  return NULL;
+}
+
+static int
+sps_proc_register (intptr_t pid, HANDLE handle)
+{
+  if (sps_proc_find (pid) != NULL)
+    {
+      CloseHandle (handle);
+      return 0;
+    }
+  if (sps_proc_count < SPS_MAX_PROC)
+    {
+      sps_procs[sps_proc_count].pid = pid;
+      sps_procs[sps_proc_count].handle = handle;
+      sps_proc_count++;
+      return 0;
+    }
+  CloseHandle (handle);
+  return -1;
+}
+
+static void
+sps_proc_remove (intptr_t pid)
+{
+  DWORD i;
+  for (i = 0; i < sps_proc_count; i++)
+    if (sps_procs[i].pid == pid)
+      {
+        sps_procs[i] = sps_procs[sps_proc_count - 1];
+        sps_proc_count--;
+        return;
+      }
+}
+
 static int
 sps_fill_errbuf (char *errbuf, size_t errbuf_len, const char *msg, DWORD errnum)
 {
@@ -231,20 +290,36 @@ sps_spawn (sps_fd_t child_stdin, sps_fd_t child_stdout, sps_fd_t child_stderr,
   LocalFree (command_line);
 
   if (!ok)
-    return sps_fill_errbuf (errbuf, errbuf_len, "sps_spawn: CreateProcessW failed",
-                            GetLastError ());
+    {
+      /* Keep the error wording close to POSIX so platform-agnostic callers
+         that grep for "No such file or directory" behave the same on Windows
+         as on Unix (see SyncSubProcessTest>>testRunningANonExistingCommand). */
+      DWORD win_err = GetLastError ();
+      if (win_err == ERROR_FILE_NOT_FOUND || win_err == ERROR_PATH_NOT_FOUND)
+        return sps_fill_errbuf (errbuf, errbuf_len,
+                                "sps_spawn: No such file or directory", 0);
+      return sps_fill_errbuf (errbuf, errbuf_len, "sps_spawn: CreateProcessW failed",
+                              win_err);
+    }
 
   /* Return the real OS process id so the rest of the package can treat the
-     result uniformly with Unix (wait/terminate by re-opening the process via
-     OpenProcess). Close both handles; the thread handle is not needed.
-     GetProcessId is only supported on Vista+, matching _WIN32_WINNT=0x0601. */
+     result uniformly with Unix (wait/terminate by pid). Keep the process
+     handle open in the registry: the child may exit before a later wait, at
+     which point it could no longer be re-opened by pid. Only the thread
+     handle is closed here. GetProcessId is only supported on Vista+, matching
+     _WIN32_WINNT=0x0601. */
   {
     DWORD os_pid = GetProcessId (proc_info.hProcess);
     CloseHandle (proc_info.hThread);
-    CloseHandle (proc_info.hProcess);
     if (os_pid == 0)
-      return sps_fill_errbuf (errbuf, errbuf_len, "sps_spawn: GetProcessId failed",
-                              GetLastError ());
+      {
+        CloseHandle (proc_info.hProcess);
+        return sps_fill_errbuf (errbuf, errbuf_len, "sps_spawn: GetProcessId failed",
+                                GetLastError ());
+      }
+    if (sps_proc_register ((intptr_t) os_pid, proc_info.hProcess) != 0)
+      return sps_fill_errbuf (errbuf, errbuf_len,
+                              "sps_spawn: process registry full", 0);
     return (intptr_t) os_pid;
   }
 }
@@ -310,24 +385,25 @@ sps_close (sps_fd_t fd)
 int
 sps_wait (intptr_t pid, int block, int *out_status)
 {
-  HANDLE h = OpenProcess (PROCESS_QUERY_INFORMATION | SYNCHRONIZE,
-                          FALSE, (DWORD) pid);
-  if (h == NULL)
+  sps_proc_entry *entry = sps_proc_find (pid);
+  if (entry == NULL)
     return -1;
 
-  if (WaitForSingleObject (h, block ? INFINITE : 0) == WAIT_TIMEOUT)
-    {
-      CloseHandle (h);
-      return 0;                              /* still running (poll mode) */
-    }
+  if (WaitForSingleObject (entry->handle, block ? INFINITE : 0) == WAIT_TIMEOUT)
+    return 0;                              /* still running (poll mode) */
 
   {
     DWORD code = 0;
-    GetExitCodeProcess (h, &code);
-    CloseHandle (h);
+    GetExitCodeProcess (entry->handle, &code);
+
+    /* Close the handle and drop the registry entry once the exit has been
+       reported; a later sps_wait for the same pid then fails, which callers
+       treat as "already reaped/absent". */
+    sps_proc_remove (pid);
+    CloseHandle (entry->handle);
 
     if (code == STILL_ACTIVE)
-      return 0;                              /* not actually exited (edge case) */
+      return 0;                            /* not actually exited (edge case) */
 
     /* Encode the exit code into a POSIX-like wait status so the caller's
        WIFEXITED/WEXITSTATUS decoding reports it directly. */
@@ -339,10 +415,11 @@ sps_wait (intptr_t pid, int block, int *out_status)
 int
 sps_kill (intptr_t pid)
 {
-  HANDLE h = OpenProcess (PROCESS_TERMINATE, FALSE, (DWORD) pid);
-  if (h == NULL)
+  sps_proc_entry *entry = sps_proc_find (pid);
+  if (entry == NULL)
     return -1;
-  TerminateProcess (h, 1);
-  CloseHandle (h);
+  /* Leave the handle registered so a subsequent sps_wait can reap the exit. */
+  if (!TerminateProcess (entry->handle, 1))
+    return -1;
   return 0;
 }
