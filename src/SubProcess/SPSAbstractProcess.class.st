@@ -104,24 +104,29 @@ SPSAbstractProcess >> closeAllPipeFds: aCollection [
 { #category : #private }
 SPSAbstractProcess >> closeFd: anInteger [
 
-	anInteger ifNotNil: [ LibC uniqueInstance close: anInteger ]
+	anInteger
+		ifNotNil: [ SPSSpawnLibrary uniqueInstance closeFd: anInteger ]
 ]
 
 { #category : #private }
-SPSAbstractProcess >> newPipeFds [
+SPSAbstractProcess >> newPipeFor: aRole [
 
-	"Create an anonymous pipe and answer an array { readFd. writeFd }, or nil
-	 if the pipe cannot be created."
+	"Create an anonymous pipe whose child end is wired for the given child
+	 stream role (#stdin, #stdout or #stderr) and answer an array
+	 { parentFd. childFd }, or nil if the pipe cannot be created."
 
-	| buffer |
-	buffer := ExternalAddress allocate: 8.
+	| kind parentBuffer childBuffer parent child |
+	kind := aRole = #stdin ifTrue: [ 0 ] ifFalse: [ 1 ].
+	parentBuffer := ExternalAddress allocate: 8.
+	childBuffer := ExternalAddress allocate: 8.
 	^ [
-		(LibC uniqueInstance createPipe: buffer) = 0
-			ifTrue: [ {
-				buffer integerAt: 1 size: 4 signed: true.
-				buffer integerAt: 5 size: 4 signed: true } ]
+		(SPSSpawnLibrary uniqueInstance newPipe: kind parent: parentBuffer child: childBuffer) = 0
+			ifTrue: [
+				parent := parentBuffer unsignedLongLongAt: 1.
+				child := childBuffer unsignedLongLongAt: 1.
+				{ parent. child } ]
 			ifFalse: [ nil ] ]
-		ensure: [ buffer free ]
+		ensure: [ parentBuffer free. childBuffer free ]
 ]
 
 { #category : #private }

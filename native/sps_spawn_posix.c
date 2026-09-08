@@ -1,7 +1,9 @@
 /*
  * sps_spawn_posix.c
  *
- * macOS/Linux implementation of sps_spawn() using posix_spawn().
+ * macOS/Linux implementation of the sps_* process helper using posix_spawn()
+ * for launch and plain pipe(2)/read(2)/write(2)/waitpid(2)/kill(2) for I/O
+ * and lifecycle.
  *
  * The working directory is honoured through the platform-specific spawn
  * attribute/file-action extensions:
@@ -20,9 +22,11 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <spawn.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #if defined(__APPLE__)
@@ -58,6 +62,39 @@ sps_fill_errbuf (char *errbuf, size_t errbuf_len, const char *msg, int errnum)
     snprintf (errbuf, errbuf_len, "%s", msg);
 
   return -1;
+}
+
+int
+sps_pipe (int kind, sps_fd_t *out_parent, sps_fd_t *out_child)
+{
+  int fds[2];
+  int parent_idx, child_idx;
+
+  if (pipe (fds) != 0)
+    return -1;
+
+  if (kind == SPS_PIPE_STDIN)
+    {
+      /* child reads fds[0], parent writes fds[1] */
+      parent_idx = 1;
+      child_idx = 0;
+    }
+  else
+    {
+      /* child writes fds[1], parent reads fds[0] */
+      parent_idx = 0;
+      child_idx = 1;
+    }
+
+  /* Prevent the child from inheriting the parent's ends: keep every end
+     close-on-exec; posix_spawn's adddup2 onto 0/1/2 clears CLOEXEC on exactly
+     the three descriptors the child uses for its stdio. */
+  fcntl (fds[0], F_SETFD, FD_CLOEXEC);
+  fcntl (fds[1], F_SETFD, FD_CLOEXEC);
+
+  *out_parent = (sps_fd_t) fds[parent_idx];
+  *out_child = (sps_fd_t) fds[child_idx];
+  return 0;
 }
 
 intptr_t
@@ -119,4 +156,43 @@ sps_fd_set_nonblocking (sps_fd_t fd)
   if (flags == -1)
     return -1;
   return fcntl ((int) fd, F_SETFL, flags | O_NONBLOCK);
+}
+
+long
+sps_read (sps_fd_t fd, char *buf, size_t len)
+{
+  ssize_t n = read ((int) fd, buf, len);
+  return (long) n;
+}
+
+long
+sps_write (sps_fd_t fd, const char *buf, size_t len)
+{
+  ssize_t n = write ((int) fd, buf, len);
+  return (long) n;
+}
+
+int
+sps_close (sps_fd_t fd)
+{
+  return close ((int) fd) == 0 ? 0 : -1;
+}
+
+int
+sps_wait (intptr_t pid, int block, int *out_status)
+{
+  int status = 0;
+  pid_t r = waitpid ((pid_t) pid, &status, block ? 0 : WNOHANG);
+  if (r == 0)
+    return 0;                              /* still running (poll mode) */
+  if (r < 0)
+    return -1;                             /* ECHILD or other error */
+  *out_status = status;                    /* reaped: raw wait status */
+  return 1;
+}
+
+int
+sps_kill (intptr_t pid)
+{
+  return kill ((pid_t) pid, SIGKILL) == 0 ? 0 : -1;
 }

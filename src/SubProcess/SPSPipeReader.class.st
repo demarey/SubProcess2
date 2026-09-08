@@ -71,7 +71,7 @@ SPSPipeReader >> fd [
 SPSPipeReader >> close [
 
 	fd ifNotNil: [
-		LibC uniqueInstance close: fd.
+		SPSSpawnLibrary uniqueInstance closeFd: fd.
 		fd := nil.
 		isEof := true ]
 ]

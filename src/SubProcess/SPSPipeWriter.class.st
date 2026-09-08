@@ -21,8 +21,7 @@ SPSPipeWriter class >> fd: anInteger [
 SPSPipeWriter >> close [
 
 	fd
-		ifNotNil: [ (LibC uniqueInstance close: fd). fd := nil ]
-]
+		ifNotNil: [ (SPSSpawnLibrary uniqueInstance closeFd: fd). fd := nil ]]
 
 { #category : #initialization }
 SPSPipeWriter >> initializeFd: anInteger [
@@ -36,6 +35,6 @@ SPSPipeWriter >> nextPutAll: aString [
 
 	| bytes written |
 	bytes := aString asByteArray.
-	written := LibC uniqueInstance write: fd buffer: bytes size: bytes size.
+	written := SPSSpawnLibrary uniqueInstance write: fd buffer: bytes size: bytes size.
 	^ written
 ]

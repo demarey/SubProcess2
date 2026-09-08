@@ -24,12 +24,15 @@ The package is organised in three layers:
 │                                │                                     │
 │        SPSPipeReader · SPSPipeWriter (line split + collect)          │
 │                                │                                     │
-│  SPSSpawnLibrary (FFI) · LibC.extension (pipe/read/write/kill)       │
+│                        SPSSpawnLibrary (FFI)                          │
 └────────────────────────────────┼─────────────────────────────────────┘
                                  ▼
 ┌────────────────────────────  native/ (C shim)  ──────────────────────┐
-│  sps_spawn  — posix_spawn (Unix) / CreateProcess (Windows)           │
-│  sps_fd_set_nonblocking — polling mode                               │
+│  sps_pipe        — create a pipe wired for a child stdio role        │
+│  sps_spawn       — posix_spawn (Unix) / CreateProcess (Windows)      │
+│  sps_read/write/close — move bytes on a pipe descriptor              │
+│  sps_wait        — poll or block for child exit (waitpid / WaitFor…) │
+│  sps_kill        — SIGKILL (Unix) / TerminateProcess (Windows)       │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -40,17 +43,27 @@ The package is organised in three layers:
 The bulk of the mechanism is a small C shim so that nothing platform-specific
 lives in Smalltalk:
 
-* **Pipes are created in Smalltalk** (`LibC createPipe:`) — one for stdin, one
-  for stdout, one for stderr. The *child-facing* descriptor of each is passed to
-  `sps_spawn`, which wires it to fd 0/1/2 in the child. The parent keeps the
-  opposite ends for its own reads/writes.
+* **Pipes are created by the shim** (`sps_pipe`) — one for stdin, one for
+  stdout, one for stderr. On Unix the descriptors are plain `int` fds; on
+  Windows they are `HANDLE`s. Both are expressed to Smalltalk as platform-sized
+  unsigned integers (an `sps_fd_t`), so the Smalltalk code is identical on every
+  platform. The *child-facing* descriptor of each is passed to `sps_spawn`,
+  which wires it to fd 0/1/2 in the child (and makes it inheritable on
+  Windows). The parent keeps the opposite ends for its own reads/writes.
 * **argv is a single NUL-separated blob**: `"prog\0arg1\0arg2\0"`. Using NUL as
   the separator means **no escaping is ever needed**, and a Pharo `String` can be
   marshalled to the C side directly. `args_len` is the blob's byte size (it
   contains embedded NULs, so it is not a C string).
+* **All I/O goes through the shim.** `sps_read` transparently handles the
+  Unix `O_NONBLOCK` retry convention and the Windows `PeekNamedPipe` +
+  `ReadFile` emulation (returning 0 on broken-pipe EOF, −1 when no data is
+  currently available). `sps_close`, `sps_wait` and `sps_kill` abstract the
+  remaining platform differences, including encoding exit codes into a
+  POSIX-like wait status on Windows so the shared `decodeExitCodeFromWaitStatus:`
+  works unmodified. There is no Unix/Windows branching in Smalltalk.
 * **One real OS pid on every platform** (Unix pid or Windows `CreateProcess`
   pid). The rest of the package treats exit and wait handling uniformly via
-  `waitpid`-style poling and `decodeExitCodeFromWaitStatus:`.
+  `sps_wait`-based polling and `decodeExitCodeFromWaitStatus:`.
 * **The caller must close its own copy of each child-facing descriptor** after a
   successful spawn (the read end of the stdin pipe and the write ends of the
   stdout/stderr pipes); otherwise the parent's read ends never see EOF. This is
@@ -80,12 +93,14 @@ background:
 
 * A **watcher process** is forked (`forkAt:` background priority,
   `'SubProcess-completion-watch'`). Each tick it **pumps** the stdout/stderr
-  pipes and **polls** the child with `waitpid(pid, WNOHANG)`, sleeping ~3 ms when
-  nothing is ready.
+  pipes and **polls** the child with a non-blocking `sps_wait` (block 0),
+  sleeping ~3 ms when nothing is ready.
 * `pumpOutput` reads available bytes and feeds each `SPSPipeReader`, which splits
   them into lines. Depending on configuration, lines go to an `outputLineDo:`
   subscriber and/or a collector `WriteStream` backing `stdOut`/`stdErr`; the raw
-  readers also serve `stdOutChannel`/`stdErrChannel`.
+  readers also serve `stdOutChannel`/`stdErrChannel`. All pipe I/O (read/close)
+  goes through `SPSSpawnLibrary`, so the reader/writer code paths are identical
+  on every platform.
 * **Completion** is announced only after the pipes are drained to EOF
   (`drainOutputToEof`), so collected output is complete: set `exitCode`, signal a
   `completionSemaphore`, set `isComplete`, then `announceCompleted`.
@@ -93,8 +108,8 @@ background:
 * `terminate` **hard-kills** the child (`SPSProcessControl terminatePid:` →
   SIGKILL on Unix, `TerminateProcess` on Windows, matching GLib's
   `g_subprocess_force_exit`), then does a cooperative shutdown: sets
-  `stopRequested` so the watcher loop exits deterministically, reaps (WNOHANG),
-  closes the channels, and marks complete/signals.
+  `stopRequested` so the watcher loop exits deterministically, reaps (blocking
+  `sps_wait`), closes the channels, and marks complete/signals.
 
 ## Design choices & tradeoffs
 
@@ -106,13 +121,17 @@ background:
   cases, and trivial FFI marshalling. Slight cost: arguments cannot be read as a
   plain C string, hence the explicit length.
 * **Background polling watcher vs. ThreadedFFI blocking readers or `select()`.**
-  A single forked watcher that polls non-blocking fds plus `waitpid(WNOHANG)` is
-  simple and fully portable across Unix/Windows. Tradeoffs: a small periodic CPU
-  burn (~every 3 ms) and output latency of roughly one poll tick. It avoids the
-  complexity (and one thread per channel) of ThreadedFFI; `select()` was not
-  exposed through the shim to keep the FFI surface minimal.
-* **Real OS pid everywhere.** Uniform exit/`waitpid` handling across platforms,
-  at the price of Windows needing its own shim branch.
+  A single forked watcher that polls non-blocking fds plus non-blocking
+  `sps_wait` is simple and fully portable across Unix/Windows. Tradeoffs: a
+  small periodic CPU burn (~every 3 ms) and output latency of roughly one poll
+  tick. It avoids the complexity (and one thread per channel) of ThreadedFFI;
+  `select()` was not exposed through the shim to keep the FFI surface minimal.
+* **Real OS pid everywhere.** Uniform exit/wait handling across platforms.
+* **Uniform pipe I/O in the shim.** Because Windows uses `HANDLE`s while Unix
+  uses `int` fds, all pipe I/O (create, read, write, close) and lifecycle
+  (wait, kill) is delegated to the shim behind the opaque `sps_fd_t` type. The
+  Smalltalk layer holds no platform-specific fds at all, which is what lets the
+  same code run on Unix and Windows.
 * **Hard-kill on timeout (async and sync), matching GLib `forceExit`.** Async
   `terminate` sends SIGKILL/`TerminateProcess`, then the shutdown sequence
   (stop + reap + close) is cooperative so the watcher exits cleanly and
@@ -144,4 +163,6 @@ in Pharo via the Metacello baseline and run the tests:
 * `SyncSubProcessTest`   — 6 tests
 * `ASyncSubProcessTest`  — 8 tests
 
-Both suites pass against the native shim on macOS; Windows is untested so far.
+Both suites pass against the native shim on macOS. On Windows the shim is
+cross-compiled with MinGW (compilation-validated); the Smalltalk I/O layer has
+no platform branching, and Windows support is verified through CI.

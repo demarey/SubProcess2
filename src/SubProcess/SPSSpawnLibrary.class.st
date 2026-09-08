@@ -1,15 +1,20 @@
 "
 I am an FFI library wrapping the native spawn shim (`libsps_spawn` on Unix,
 `sps_spawn.dll` on Windows) that replaces the former GLib `GSubprocess`
-dependency. I expose:
+dependency. I expose the whole process I/O surface the package needs:
 
-- `sps_spawn` to launch a child process, wiring the given standard-stream
-  descriptors and working directory, and reporting failures with a negated
-  error number plus a human-readable message;
-- `sps_fd_set_nonblocking` to put a pipe descriptor into polling mode.
+- `newPipe:parent:` to create an anonymous pipe wired for a child role;
+- `spawnStdin:stdout:stderr:...` to launch a child, wiring the given standard
+  stream descriptors and working directory;
+- `read:buffer:size:` / `write:buffer:size:` / `closeFd:` / `fdSetNonBlocking:`
+  to move bytes on a pipe descriptor;
+- `waitPid:block:status:` to wait for a child;
+- `killPid:` to terminate a child.
 
-The child identifier returned is the real OS process id on every platform, so
-the rest of the package can treat it uniformly.
+Descriptors (`sps_fd_t`) are unsigned integers that look like Unix file
+descriptors on Unix and HANDLEs on Windows; the shim owns every platform
+detail, so this class is fully platform-agnostic. The child identifier is the
+real OS process id on every platform.
 "
 Class {
 	#name : #SPSSpawnLibrary,
@@ -42,47 +47,58 @@ SPSSpawnLibrary >> win32LibraryName [
 ]
 
 { #category : #ffi }
+SPSSpawnLibrary >> closeFd: aFd [
+
+	^ self ffiCall: #(int sps_close(size_t aFd))
+]
+
+{ #category : #ffi }
 SPSSpawnLibrary >> fdSetNonBlocking: aFd [
 
-	OSPlatform current isWindows ifTrue: [ ^ self ].
+	^ self ffiCall: #(int sps_fd_set_nonblocking(size_t aFd))
+]
 
-	^ self ffiCall: #(int sps_fd_set_nonblocking(int aFd))
+{ #category : #ffi }
+SPSSpawnLibrary >> killPid: aPid [
+
+	^ self ffiCall: #(int sps_kill(long aPid))
+]
+
+{ #category : #ffi }
+SPSSpawnLibrary >> newPipe: aKind parent: aParentBuffer child: aChildBuffer [
+
+	"Create an anonymous pipe whose child end is wired for the given role
+	 (aKind: 0 stdin, 1 stdout, 2 stderr). On success writes the parent and
+	 child `sps_fd_t` descriptors into the two supplied 8-byte external buffers
+	 and answers 0; answers -1 on failure."
+
+	^ self ffiCall: #(int sps_pipe(int aKind, void* aParentBuffer, void* aChildBuffer))
+]
+
+{ #category : #ffi }
+SPSSpawnLibrary >> read: aFd buffer: aBuffer size: aCount [
+
+	^ self ffiCall: #(long sps_read(size_t aFd, void* aBuffer, size_t aCount))
 ]
 
 { #category : #ffi }
 SPSSpawnLibrary >> spawnStdin: aStdinFd stdout: aStdoutFd stderr: aStderrFd args: anArgsBlob argsLength: anArgsLength cwd: aCwdString error: anErrBuf errorLength: anErrBufLength [
 
-	OSPlatform current isWindows
-		ifTrue: [
-			^ self
-				spawnWindowsStdin: aStdinFd
-				stdout: aStdoutFd
-				stderr: aStderrFd
-				args: anArgsBlob
-				argsLength: anArgsLength
-				cwd: aCwdString
-				error: anErrBuf
-				errorLength: anErrBufLength ]
-		ifFalse: [
-			^ self
-				spawnUnixStdin: aStdinFd
-				stdout: aStdoutFd
-				stderr: aStderrFd
-				args: anArgsBlob
-				argsLength: anArgsLength
-				cwd: aCwdString
-				error: anErrBuf
-				errorLength: anErrBufLength ]
+	^ self ffiCall: #(long sps_spawn(size_t aStdinFd, size_t aStdoutFd, size_t aStderrFd, const char* anArgsBlob, size_t anArgsLength, const char* aCwdString, char* anErrBuf, size_t anErrBufLength))
 ]
 
 { #category : #ffi }
-SPSSpawnLibrary >> spawnUnixStdin: aStdinFd stdout: aStdoutFd stderr: aStderrFd args: anArgsBlob argsLength: anArgsLength cwd: aCwdString error: anErrBuf errorLength: anErrBufLength [
+SPSSpawnLibrary >> waitPid: aPid block: aBlock statusBuffer: aStatusBuffer [
 
-	^ self ffiCall: #(long sps_spawn(int aStdinFd, int aStdoutFd, int aStderrFd, const char* anArgsBlob, size_t anArgsLength, const char* aCwdString, char* anErrBuf, size_t anErrBufLength))
+	"Wait for the child aPid. Answers 1 once it has exited (writing a wait
+	 status into the 4-byte aStatusBuffer), 0 while it is still running in
+	 poll mode (aBlock false), and -1 on error. aBlock true blocks until exit."
+
+	^ self ffiCall: #(int sps_wait(long aPid, int aBlock, int* aStatusBuffer))
 ]
 
 { #category : #ffi }
-SPSSpawnLibrary >> spawnWindowsStdin: aStdinFd stdout: aStdoutFd stderr: aStderrFd args: anArgsBlob argsLength: anArgsLength cwd: aCwdString error: anErrBuf errorLength: anErrBufLength [
+SPSSpawnLibrary >> write: aFd buffer: aBuffer size: aCount [
 
-	^ self ffiCall: #(long sps_spawn(void* aStdinFd, void* aStdoutFd, void* aStderrFd, const char* anArgsBlob, size_t anArgsLength, const char* aCwdString, char* anErrBuf, size_t anErrBufLength))
+	^ self ffiCall: #(long sps_write(size_t aFd, void* aBuffer, size_t aCount))
 ]

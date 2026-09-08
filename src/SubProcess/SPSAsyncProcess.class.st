@@ -213,7 +213,7 @@ SPSAsyncProcess >> pumpReader: aReader fromFd: aFd [
 	| count |
 	aReader ifNil: [ ^ self ].
 	aReader isEof ifTrue: [ ^ self ].
-	count := LibC uniqueInstance read: aFd buffer: readBuffer size: readBuffer size.
+	count := SPSSpawnLibrary uniqueInstance read: aFd buffer: readBuffer size: readBuffer size.
 	count > 0
 		ifTrue: [ aReader addBytes: (readBuffer first: count) ]
 		ifFalse: [ count = 0 ifTrue: [ aReader announceEof ] ]
@@ -246,8 +246,8 @@ SPSAsyncProcess >> pollChildExitIfAny [
 
 	| statusBuffer result |
 	statusBuffer := ByteArray new: 4.
-	result := LibC uniqueInstance waitpid: pid status: statusBuffer options: 1.
-	result = pid ifTrue: [
+	result := SPSSpawnLibrary uniqueInstance waitPid: pid block: 0 statusBuffer: statusBuffer.
+	result = 1 ifTrue: [
 		^ statusBuffer integerAt: 1 size: 4 signed: true ].
 	^ nil
 ]
@@ -257,7 +257,7 @@ SPSAsyncProcess >> reapChildIfNeeded [
 
 	| statusBuffer |
 	statusBuffer := ByteArray new: 4.
-	(LibC uniqueInstance waitpid: pid status: statusBuffer options: 1) = pid ifTrue: [
+	(SPSSpawnLibrary uniqueInstance waitPid: pid block: 1 statusBuffer: statusBuffer) = 1 ifTrue: [
 		"Reaped; nothing to do." ]
 ]
 
@@ -268,14 +268,14 @@ SPSAsyncProcess >> spawnProcess [
 	  childStdin childStdout childStderr
 	  parentStdin parentStdout parentStderr
 	  argsBlob cwd errBuf spawnResult |
-	stdinPipe := self newPipeFds.
-	stdoutPipe := self newPipeFds.
-	stderrPipe := self newPipeFds.
+	stdinPipe := self newPipeFor: #stdin.
+	stdoutPipe := self newPipeFor: #stdout.
+	stderrPipe := self newPipeFor: #stderr.
 	(stdinPipe isNil or: [ stdoutPipe isNil or: [ stderrPipe isNil ] ])
 		ifTrue: [ self signalSpawnError: 'Cannot create pipes' code: 0 ].
 
-	childStdin := stdinPipe first.
-	parentStdin := stdinPipe second.
+	childStdin := stdinPipe second.
+	parentStdin := stdinPipe first.
 	childStdout := stdoutPipe second.
 	parentStdout := stdoutPipe first.
 	childStderr := stderrPipe second.

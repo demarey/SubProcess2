@@ -1,17 +1,15 @@
 /*
  * sps_spawn_win.c
  *
- * Windows implementation of sps_spawn() using CreateProcessW().
+ * Windows implementation of the sps_* process helper using CreateProcessW()
+ * for launch and CreatePipe / ReadFile / WriteFile / CloseHandle for I/O and
+ * OpenProcess + WaitForSingleObject / GetExitCodeProcess / TerminateProcess
+ * for lifecycle.
  *
- * On Windows sps_fd_t is a HANDLE (the child-facing pipe end):
- *   - child_stdin  : the read handle that becomes the child's stdin,
- *   - child_stdout : the write handle that becomes the child's stdout,
- *   - child_stderr : the write handle that becomes the child's stderr.
- *
- * These handles are made inheritable (SetHandleInformation) and wired into the
- * child via STARTUPINFO (STARTF_USESTDHANDLES). The returned "pid" is the
- * process HANDLE, which the caller later uses with WaitForSingleObject /
- * GetExitCodeProcess / TerminateProcess.
+ * On Windows sps_fd_t is a HANDLE. The pipe ends returned by sps_pipe (and
+ * given to sps_spawn) are HANDLEs; the child-facing ends are made inheritable
+ * and the parent-facing ends are not, so the child only receives the three
+ * descriptors it needs for its stdio.
  */
 
 #include "sps_spawn.h"
@@ -136,6 +134,44 @@ sps_build_command_line (char *const *argv, size_t *out_len)
   return wide;
 }
 
+int
+sps_pipe (int kind, sps_fd_t *out_parent, sps_fd_t *out_child)
+{
+  HANDLE hRead, hWrite;
+  SECURITY_ATTRIBUTES sa;
+  HANDLE child_end, parent_end;
+
+  memset (&sa, 0, sizeof sa);
+  sa.nLength = sizeof sa;
+  sa.bInheritHandle = TRUE;                  /* let the child end be inherited */
+  sa.lpSecurityDescriptor = NULL;
+
+  if (!CreatePipe (&hRead, &hWrite, &sa, 0))
+    return -1;
+
+  if (kind == SPS_PIPE_STDIN)
+    {
+      child_end = hRead;                     /* child reads */
+      parent_end = hWrite;                   /* parent writes */
+    }
+  else
+    {
+      child_end = hWrite;                    /* child writes */
+      parent_end = hRead;                    /* parent reads */
+    }
+
+  /* The child-facing end is inherited (redundant given the security
+     attributes above, kept for clarity); the parent end must not be, so the
+     child does not keep the parent's ends open (which would hold the pipe
+     open past EOF). */
+  SetHandleInformation (child_end, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
+  SetHandleInformation (parent_end, HANDLE_FLAG_INHERIT, 0);
+
+  *out_child = (sps_fd_t) child_end;
+  *out_parent = (sps_fd_t) parent_end;
+  return 0;
+}
+
 intptr_t
 sps_spawn (sps_fd_t child_stdin, sps_fd_t child_stdout, sps_fd_t child_stderr,
            const char *args, size_t args_len, const char *cwd,
@@ -216,8 +252,89 @@ sps_spawn (sps_fd_t child_stdin, sps_fd_t child_stdout, sps_fd_t child_stderr,
 int
 sps_fd_set_nonblocking (sps_fd_t fd)
 {
-  /* Windows anonymous pipe reads are made non-blocking via PeekNamedPipe by
-     the caller; this helper is a no-op kept for interface parity. */
+  /* Windows anonymous pipe reads are made non-blocking inside sps_read via
+     PeekNamedPipe; this helper is a no-op kept for interface parity. */
   (void) fd;
+  return 0;
+}
+
+long
+sps_read (sps_fd_t fd, char *buf, size_t len)
+{
+  HANDLE h = (HANDLE) fd;
+  DWORD available = 0;
+
+  /* PeekNamedPipe tells us whether data is ready (or the write end is gone)
+     without blocking, which is how we emulate a non-blocking read. */
+  if (!PeekNamedPipe (h, NULL, 0, &available, NULL, NULL))
+    {
+      if (GetLastError () == ERROR_BROKEN_PIPE)
+        return 0;                            /* EOF: all write ends closed */
+      return -1;
+    }
+
+  if (available == 0)
+    return -1;                               /* would block: no data yet */
+
+  {
+    DWORD nread = 0;
+    if (!ReadFile (h, buf, (DWORD) len, &nread, NULL))
+      return -1;
+    return (long) nread;
+  }
+}
+
+long
+sps_write (sps_fd_t fd, const char *buf, size_t len)
+{
+  DWORD nwritten = 0;
+  if (!WriteFile ((HANDLE) fd, buf, (DWORD) len, &nwritten, NULL))
+    return -1;
+  return (long) nwritten;
+}
+
+int
+sps_close (sps_fd_t fd)
+{
+  return CloseHandle ((HANDLE) fd) ? 0 : -1;
+}
+
+int
+sps_wait (intptr_t pid, int block, int *out_status)
+{
+  HANDLE h = OpenProcess (PROCESS_QUERY_INFORMATION | SYNCHRONIZE,
+                          FALSE, (DWORD) pid);
+  if (h == NULL)
+    return -1;
+
+  if (WaitForSingleObject (h, block ? INFINITE : 0) == WAIT_TIMEOUT)
+    {
+      CloseHandle (h);
+      return 0;                              /* still running (poll mode) */
+    }
+
+  {
+    DWORD code = 0;
+    GetExitCodeProcess (h, &code);
+    CloseHandle (h);
+
+    if (code == STILL_ACTIVE)
+      return 0;                              /* not actually exited (edge case) */
+
+    /* Encode the exit code into a POSIX-like wait status so the caller's
+       WIFEXITED/WEXITSTATUS decoding reports it directly. */
+    *out_status = ((int) code << 8) & 0xFFFFFF00;
+    return 1;
+  }
+}
+
+int
+sps_kill (intptr_t pid)
+{
+  HANDLE h = OpenProcess (PROCESS_TERMINATE, FALSE, (DWORD) pid);
+  if (h == NULL)
+    return -1;
+  TerminateProcess (h, 1);
+  CloseHandle (h);
   return 0;
 }
