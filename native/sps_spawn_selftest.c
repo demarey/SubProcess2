@@ -65,6 +65,7 @@ sps_selftest_run_parent (const char *self_path)
   intptr_t pid;
   char buf[4096];
   long total = 0;
+  long retries = 0;
   int exit_code = 0;
   int ok = 1;
 
@@ -120,22 +121,57 @@ sps_selftest_run_parent (const char *self_path)
   if (sps_selftest_wait (pid, &exit_code) != 0)
     ok = 0;
 
-  /* Read the child's stdout until EOF. */
-  while (total < (long) sizeof buf)
+  /* Read the child's stdout and stderr to EOF. sps_read returns -1 when no
+     data is available yet (polling mode), so like a real consumer we retry;
+     it returns 0 at EOF. Bound the loop so a genuinely silent child cannot
+     hang the self-test. */
+  {
+    while (total < (long) sizeof buf && retries < 50000)
+      {
+        long n;
+        sps_fd_set_nonblocking (stdout_parent_fd);
+        n = sps_read (stdout_parent_fd, buf + total,
+                      sizeof buf - (size_t) total);
+        if (n > 0)
+          {
+            total += n;
+            retries = 0;
+          }
+        else if (n == 0)
+          break;                       /* EOF: all write ends closed */
+        else
+          retries++;                   /* -1: no data yet; poll again */
+      }
+
     {
-      long n = sps_read (stdout_parent_fd, buf + total,
-                         sizeof buf - (size_t) total);
-      if (n <= 0)
-        break;
-      total += n;
+      char errout[512];
+      long etotal = 0;
+      long eretries = 0;
+      while (etotal < (long) sizeof errout && eretries < 50000)
+        {
+          long n = sps_read (stderr_parent_fd, errout + etotal,
+                             sizeof errout - (size_t) etotal);
+          if (n > 0)
+            {
+              etotal += n;
+              eretries = 0;
+            }
+          else if (n == 0)
+            break;
+          else
+            eretries++;
+        }
+      if (etotal > 0)
+        printf ("  child stderr: \"%.*s\"\n", (int) etotal, errout);
     }
+  }
 
   ok = ok && exit_code == 0;
   ok = ok && total == (long) sizeof payload - 1
           && memcmp (buf, payload, sizeof payload - 1) == 0;
 
-  printf ("%s exit=%d echoed=\"%.*s\"\n", ok ? "PASS" : "FAIL",
-          exit_code, (int) total, buf);
+  printf ("%s exit=%d echoed=\"%.*s\" busy-polls=%ld\n",
+          ok ? "PASS" : "FAIL", exit_code, (int) total, buf, retries);
 
   sps_close (stdout_parent_fd);
   sps_close (stderr_parent_fd);
