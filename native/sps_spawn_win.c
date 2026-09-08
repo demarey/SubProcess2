@@ -262,24 +262,32 @@ long
 sps_read (sps_fd_t fd, char *buf, size_t len)
 {
   HANDLE h = (HANDLE) fd;
-  DWORD available = 0;
+  DWORD available = 0, total = 0, pending = 0;
 
-  /* PeekNamedPipe tells us whether data is ready (or the write end is gone)
-     without blocking, which is how we emulate a non-blocking read. */
-  if (!PeekNamedPipe (h, NULL, 0, &available, NULL, NULL))
+  /* PeekNamedPipe tells us whether data is ready without blocking, which is
+     how we emulate a non-blocking read. lpTotalBytesAvail can exceed
+     lpBytesAvail right after a writer closes (bytes pending in the pipe's
+     write buffer), so we must read whenever total > 0 rather than only when
+     available > 0; otherwise a just-exited child's final output is never
+     drained. */
+  if (!PeekNamedPipe (h, NULL, 0, &available, &total, &pending))
     {
       if (GetLastError () == ERROR_BROKEN_PIPE)
         return 0;                            /* EOF: all write ends closed */
       return -1;
     }
 
-  if (available == 0)
-    return -1;                               /* would block: no data yet */
+  if (available == 0 && total == 0)
+    return -1;                               /* would block: no data at all */
 
   {
     DWORD nread = 0;
     if (!ReadFile (h, buf, (DWORD) len, &nread, NULL))
-      return -1;
+      {
+        if (GetLastError () == ERROR_BROKEN_PIPE)
+          return 0;                          /* EOF after draining */
+        return -1;
+      }
     return (long) nread;
   }
 }
