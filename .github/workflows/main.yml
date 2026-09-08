@@ -22,7 +22,7 @@ jobs:
 
       - name: Build + self-test shim (Linux/macOS)
         if: runner.os != 'Windows'
-        run: make -C native selftest
+        run: make -C native all selftest
         shell: bash
 
       - name: Set up MSYS2 (Windows)
@@ -39,8 +39,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
-          mingw32-make -C native OS=Windows_NT CC=gcc all
-          ./native/sps_spawn_selftest.exe
+          mingw32-make -C native OS=Windows_NT CC=gcc all selftest
 
       - uses: hpi-swa/setup-smalltalkCI@v1
         with:
