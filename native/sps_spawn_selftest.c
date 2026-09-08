@@ -18,7 +18,7 @@
 #include <string.h>
 
 #if defined(_WIN32)
-#  include <wchar.h>
+#  include <windows.h>
 #else
 #  include <sys/wait.h>
 #endif
@@ -109,17 +109,36 @@ sps_selftest_run_parent (const char *self_path)
   /* Write the payload to the child's stdin, then close it (delivers EOF). */
   {
     size_t written = 0;
-    while (written < sizeof payload - 1)
+    int guard = 0;
+    while (written < sizeof payload - 1 && guard < 100)
       {
         long n = sps_write (stdin_parent_fd, payload + written,
                             sizeof payload - 1 - written);
+        if (n <= 0)
+          {
+            printf ("  stdin write returned %ld\n", n);
+            break;
+          }
         written += (size_t) n;
+        guard++;
       }
+    printf ("  stdin written=%zu\n", written);
   }
   sps_close (stdin_parent_fd);
 
   if (sps_selftest_wait (pid, &exit_code) != 0)
     ok = 0;
+
+#if defined(_WIN32)
+  {
+    DWORD avail = 0, total = 0, pending = 0;
+    BOOL okp = PeekNamedPipe ((HANDLE) stdout_parent_fd, NULL, 0,
+                              &avail, &total, &pending);
+    printf ("  probe stdout after wait: ok=%d avail=%lu total=%lu pending=%lu err=%lu\n",
+            (int) okp, (unsigned long) avail, (unsigned long) total,
+            (unsigned long) pending, (unsigned long) GetLastError ());
+  }
+#endif
 
   /* Read the child's stdout and stderr to EOF. sps_read returns -1 when no
      data is available yet (polling mode), so like a real consumer we retry;
