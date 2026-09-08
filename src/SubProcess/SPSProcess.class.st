@@ -13,7 +13,7 @@ Class {
 		'isSpawnSuccess',
 		'error',
 		'exitCode',
-		'pid'
+		'processToken'
 	],
 	#category : #SubProcess
 }
@@ -96,7 +96,7 @@ SPSProcess >> terminate [
 	 can safely be called in a tearDown after #run returned."
 
 	isComplete ifTrue: [ ^ self ].
-	pid ifNotNil: [ SPSProcessControl terminatePid: pid ]
+	processToken ifNotNil: [ SPSProcessControl terminateProcess: processToken ]
 ]
 
 { #category : #private }
@@ -173,7 +173,7 @@ SPSProcess >> spawn [
 		ifFalse: [
 			self closeAllPipeFds: { childStdin. parentStdin. childStdout. childStderr }.
 			self isSpawnSuccess: true.
-			pid := spawnResult.
+			processToken := spawnResult.
 			SPSSpawnLibrary uniqueInstance fdSetNonBlocking: parentStdout.
 			SPSSpawnLibrary uniqueInstance fdSetNonBlocking: parentStderr.
 			self stdOut: (self readToEndFromFd: parentStdout).
@@ -183,12 +183,12 @@ SPSProcess >> spawn [
 ]
 
 { #category : #private }
-SPSProcess >> waitExitStatusOfPid: aPid [
+SPSProcess >> waitExitStatusOfPid: aToken [
 
 	| library statusBuffer decoded |
 	library := SPSSpawnLibrary uniqueInstance.
 	statusBuffer := ByteArray new: 4.
-	library waitPid: aPid block: 1 statusBuffer: statusBuffer.
+	library waitPid: aToken block: 1 statusBuffer: statusBuffer.
 	decoded := statusBuffer integerAt: 1 size: 4 signed: true.
 	self exitCode: (self decodeExitCodeFromWaitStatus: decoded)
 ]

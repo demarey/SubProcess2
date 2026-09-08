@@ -12,7 +12,7 @@ Class {
 }
 
 { #category : #terminating }
-SPSProcessControl class >> terminatePid: aPid [
+SPSProcessControl class >> terminateProcess: aToken [
 
-	SPSSpawnLibrary uniqueInstance killPid: aPid
+	SPSSpawnLibrary uniqueInstance killPid: aToken
 ]

@@ -47,8 +47,10 @@ int sps_pipe (int kind, sps_fd_t *out_parent, sps_fd_t *out_child);
  * ("prog\0arg1\0arg2\0"); args_len is its byte length (may contain embedded
  * NULs). cwd may be NULL to inherit the parent's directory.
  *
- * Returns the real OS pid on success. On failure returns a negated error
- * number and, if errbuf_len > 0, fills errbuf with a NUL-terminated message.
+ * Returns an opaque process token on success: on Unix the real OS pid, on
+ * Windows the CreateProcess HANDLE kept open for the child's lifetime. On
+ * failure returns a negated error number and, if errbuf_len > 0, fills errbuf
+ * with a NUL-terminated message.
  *
  * After a successful spawn the caller MUST close its own copy of each
  * child-facing end with sps_close; otherwise the parent's read ends never see
@@ -75,16 +77,21 @@ long sps_write (sps_fd_t fd, const char *buf, size_t len);
 /* Close a pipe descriptor. Answers 0 on success, -1 on error. */
 int sps_close (sps_fd_t fd);
 
-/* Wait for the child identified by pid. If block is non-zero, blocks until the
- * child exits; otherwise returns immediately.
+/* Wait for the child identified by the token returned from sps_spawn. If block
+ * is non-zero, blocks until the child exits; otherwise returns immediately.
  *
  * Answers 1 once the child has exited (writing a POSIX-like wait status into
  * *out_status that SPSAbstractProcess can decode with WIFEXITED/WEXITSTATUS
- * rules), 0 while the child is still running (poll mode), and -1 on error. */
-int sps_wait (intptr_t pid, int block, int *out_status);
+ * rules), 0 while the child is still running (poll mode), and -1 on error or
+ * when the token is no longer valid (e.g. already reaped).
+ *
+ * On exit the shim reaps the child (on Windows this closes the handle held by
+ * the token), so a given token should be waited on at most once. */
+int sps_wait (intptr_t token, int block, int *out_status);
 
 /* Terminate a running child (SIGKILL on Unix, TerminateProcess on Windows).
- * Answers 0 on success, -1 on failure. */
-int sps_kill (intptr_t pid);
+ * On Windows the handle held by the token is deliberately left open so a later
+ * sps_wait can reap it. Answers 0 on success, -1 on failure. */
+int sps_kill (intptr_t token);
 
 #endif

@@ -3,8 +3,7 @@
  *
  * Windows implementation of the sps_* process helper using CreateProcessW()
  * for launch and CreatePipe / ReadFile / WriteFile / CloseHandle for I/O and
- * OpenProcess + WaitForSingleObject / GetExitCodeProcess / TerminateProcess
- * for lifecycle.
+ * WaitForSingleObject / GetExitCodeProcess / TerminateProcess for lifecycle.
  *
  * On Windows sps_fd_t is a HANDLE. The pipe ends returned by sps_pipe (and
  * given to sps_spawn) are HANDLEs; the child-facing ends are made inheritable
@@ -20,64 +19,18 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Registry of live child processes keyed by OS pid.
+/* The process descriptor returned by sps_spawn is an opaque token passed back
+ * to sps_wait / sps_kill. On Unix the token is the OS pid; on Windows it is
+ * the HANDLE returned by CreateProcess. On Windows the handle is kept open for
+ * the lifetime of the child (the token), because once a process exits and its
+ * last handle is closed the process object is destroyed and it can no longer
+ * be opened by pid. sps_wait reaps and closes the handle when it reports the
+ * exit; sps_kill terminates but deliberately leaves the handle open so the
+ * subsequent sps_wait can still reap. There is therefore no long-lived
+ * registry of child processes in the shim.
  *
- * The handle returned by CreateProcess is kept open for the lifetime of the
- * child instead of being closed after spawn, because once a Windows process
- * exits and its last handle is closed the process object is destroyed and it
- * can no longer be re-opened by pid. sps_wait and sps_kill must therefore use
- * the retained handle (via this registry) rather than OpenProcess. */
-#define SPS_MAX_PROC 1024
-typedef struct
-{
-  intptr_t pid;
-  HANDLE handle;
-} sps_proc_entry;
-
-static sps_proc_entry sps_procs[SPS_MAX_PROC];
-static DWORD sps_proc_count;
-
-static sps_proc_entry *
-sps_proc_find (intptr_t pid)
-{
-  DWORD i;
-  for (i = 0; i < sps_proc_count; i++)
-    if (sps_procs[i].pid == pid)
-      return &sps_procs[i];
-  return NULL;
-}
-
-static int
-sps_proc_register (intptr_t pid, HANDLE handle)
-{
-  if (sps_proc_find (pid) != NULL)
-    {
-      CloseHandle (handle);
-      return 0;
-    }
-  if (sps_proc_count < SPS_MAX_PROC)
-    {
-      sps_procs[sps_proc_count].pid = pid;
-      sps_procs[sps_proc_count].handle = handle;
-      sps_proc_count++;
-      return 0;
-    }
-  CloseHandle (handle);
-  return -1;
-}
-
-static void
-sps_proc_remove (intptr_t pid)
-{
-  DWORD i;
-  for (i = 0; i < sps_proc_count; i++)
-    if (sps_procs[i].pid == pid)
-      {
-        sps_procs[i] = sps_procs[sps_proc_count - 1];
-        sps_proc_count--;
-        return;
-      }
-}
+ * On Windows the exit code is encoded into a POSIX-like wait status so the
+ * shared POSIX WIFEXITED/WEXITSTATUS decoding works unmodified. */
 
 static int
 sps_fill_errbuf (char *errbuf, size_t errbuf_len, const char *msg, DWORD errnum)
@@ -302,26 +255,13 @@ sps_spawn (sps_fd_t child_stdin, sps_fd_t child_stdout, sps_fd_t child_stderr,
                               win_err);
     }
 
-  /* Return the real OS process id so the rest of the package can treat the
-     result uniformly with Unix (wait/terminate by pid). Keep the process
-     handle open in the registry: the child may exit before a later wait, at
-     which point it could no longer be re-opened by pid. Only the thread
-     handle is closed here. GetProcessId is only supported on Vista+, matching
-     _WIN32_WINNT=0x0601. */
-  {
-    DWORD os_pid = GetProcessId (proc_info.hProcess);
-    CloseHandle (proc_info.hThread);
-    if (os_pid == 0)
-      {
-        CloseHandle (proc_info.hProcess);
-        return sps_fill_errbuf (errbuf, errbuf_len, "sps_spawn: GetProcessId failed",
-                                GetLastError ());
-      }
-    if (sps_proc_register ((intptr_t) os_pid, proc_info.hProcess) != 0)
-      return sps_fill_errbuf (errbuf, errbuf_len,
-                              "sps_spawn: process registry full", 0);
-    return (intptr_t) os_pid;
-  }
+  /* Return the process HANDLE itself as the opaque token. The rest of the
+     package treats it uniformly with the Unix pid (wait/terminate by token).
+     Keep the handle open as the token: the child may exit before a later wait,
+     at which point it could no longer be re-opened by pid. sps_wait reaps and
+     closes it. Only the thread handle is closed here. */
+  CloseHandle (proc_info.hThread);
+  return (intptr_t) proc_info.hProcess;
 }
 
 int
@@ -383,24 +323,25 @@ sps_close (sps_fd_t fd)
 }
 
 int
-sps_wait (intptr_t pid, int block, int *out_status)
+sps_wait (intptr_t token, int block, int *out_status)
 {
-  sps_proc_entry *entry = sps_proc_find (pid);
-  if (entry == NULL)
-    return -1;
+  HANDLE h = (HANDLE) token;
+  DWORD res = WaitForSingleObject (h, block ? INFINITE : 0);
 
-  if (WaitForSingleObject (entry->handle, block ? INFINITE : 0) == WAIT_TIMEOUT)
+  if (res == WAIT_TIMEOUT)
     return 0;                              /* still running (poll mode) */
+
+  if (res != WAIT_OBJECT_0)
+    return -1;                             /* WAIT_FAILED/ABANDONED: bad/reaped handle */
 
   {
     DWORD code = 0;
-    GetExitCodeProcess (entry->handle, &code);
+    GetExitCodeProcess (h, &code);
 
-    /* Close the handle and drop the registry entry once the exit has been
-       reported; a later sps_wait for the same pid then fails, which callers
-       treat as "already reaped/absent". */
-    sps_proc_remove (pid);
-    CloseHandle (entry->handle);
+    /* Reap: the handle opened by sps_spawn is closed here (and only here), once
+       the exit has been reported. A later sps_wait on the same token sees an
+       invalid handle and answers -1, which callers treat as already reaped. */
+    CloseHandle (h);
 
     if (code == STILL_ACTIVE)
       return 0;                            /* not actually exited (edge case) */
@@ -413,13 +354,11 @@ sps_wait (intptr_t pid, int block, int *out_status)
 }
 
 int
-sps_kill (intptr_t pid)
+sps_kill (intptr_t token)
 {
-  sps_proc_entry *entry = sps_proc_find (pid);
-  if (entry == NULL)
+  HANDLE h = (HANDLE) token;
+  if (!TerminateProcess (h, 1))
     return -1;
-  /* Leave the handle registered so a subsequent sps_wait can reap the exit. */
-  if (!TerminateProcess (entry->handle, 1))
-    return -1;
+  /* Leave the handle open as the token so a subsequent sps_wait can reap. */
   return 0;
 }

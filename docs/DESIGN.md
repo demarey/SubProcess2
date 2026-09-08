@@ -61,14 +61,14 @@ lives in Smalltalk:
   remaining platform differences, including encoding exit codes into a
   POSIX-like wait status on Windows so the shared `decodeExitCodeFromWaitStatus:`
   works unmodified. There is no Unix/Windows branching in Smalltalk.
-* **One real OS pid on every platform** (Unix pid or Windows `CreateProcess`
-  pid). The rest of the package treats exit and wait handling uniformly via
-  `sps_wait`-based polling and `decodeExitCodeFromWaitStatus:`. Because a
-  Windows process object is destroyed once it exits and its last handle is
-  closed (so it can no longer be re-opened by pid), the Windows shim keeps the
-  `CreateProcess` handle open in a small pid→handle registry for the lifetime
-  of each child; `sps_wait`/`sps_kill` use that retained handle and release it
-  when the exit is reaped.
+* **One opaque process token on every platform** — the real OS pid on Unix and
+  the `CreateProcess` HANDLE on Windows. The rest of the package treats exit
+  and wait handling uniformly via `sps_wait`-based polling and
+  `decodeExitCodeFromWaitStatus:`. Because a Windows process object is
+  destroyed once it exits and its last handle is closed (so it can no longer
+  be re-opened by pid), the spawn token *is* the retained open handle, and
+  `sps_wait` reaps and closes it once the exit is reported. This keeps the
+  shim stateless: there is no registry of child processes.
 * **The caller must close its own copy of each child-facing descriptor** after a
   successful spawn (the read end of the stdin pipe and the write ends of the
   stdout/stderr pipes); otherwise the parent's read ends never see EOF. This is

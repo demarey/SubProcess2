@@ -13,8 +13,9 @@ dependency. I expose the whole process I/O surface the package needs:
 
 Descriptors (`sps_fd_t`) are unsigned integers that look like Unix file
 descriptors on Unix and HANDLEs on Windows; the shim owns every platform
-detail, so this class is fully platform-agnostic. The child identifier is the
-real OS process id on every platform.
+detail, so this class is fully platform-agnostic. The child token returned by
+`spawnStdin:...` is an opaque extended integer: the real OS process id on Unix
+and the process HANDLE on Windows, passed back to `waitPid:` / `killPid:`.
 "
 Class {
 	#name : #SPSSpawnLibrary,
@@ -59,9 +60,9 @@ SPSSpawnLibrary >> fdSetNonBlocking: aFd [
 ]
 
 { #category : #ffi }
-SPSSpawnLibrary >> killPid: aPid [
+SPSSpawnLibrary >> killPid: aToken [
 
-	^ self ffiCall: #(int sps_kill(long aPid))
+	^ self ffiCall: #(int sps_kill(long long aToken))
 ]
 
 { #category : #ffi }
@@ -84,17 +85,18 @@ SPSSpawnLibrary >> read: aFd buffer: aBuffer size: aCount [
 { #category : #ffi }
 SPSSpawnLibrary >> spawnStdin: aStdinFd stdout: aStdoutFd stderr: aStderrFd args: anArgsBlob argsLength: anArgsLength cwd: aCwdString error: anErrBuf errorLength: anErrBufLength [
 
-	^ self ffiCall: #(long sps_spawn(size_t aStdinFd, size_t aStdoutFd, size_t aStderrFd, const char* anArgsBlob, size_t anArgsLength, const char* aCwdString, char* anErrBuf, size_t anErrBufLength))
+	^ self ffiCall: #(long long sps_spawn(size_t aStdinFd, size_t aStdoutFd, size_t aStderrFd, const char* anArgsBlob, size_t anArgsLength, const char* aCwdString, char* anErrBuf, size_t anErrBufLength))
 ]
 
 { #category : #ffi }
-SPSSpawnLibrary >> waitPid: aPid block: aBlock statusBuffer: aStatusBuffer [
+SPSSpawnLibrary >> waitPid: aToken block: aBlock statusBuffer: aStatusBuffer [
 
-	"Wait for the child aPid. Answers 1 once it has exited (writing a wait
-	 status into the 4-byte aStatusBuffer), 0 while it is still running in
-	 poll mode (aBlock false), and -1 on error. aBlock true blocks until exit."
+	"Wait for the child identified by aToken. Answers 1 once it has exited
+	 (writing a wait status into the 4-byte aStatusBuffer), 0 while it is still
+	 running in poll mode (aBlock false), and -1 on error. aBlock true blocks
+	 until exit."
 
-	^ self ffiCall: #(int sps_wait(long aPid, int aBlock, int* aStatusBuffer))
+	^ self ffiCall: #(int sps_wait(long long aToken, int aBlock, int* aStatusBuffer))
 ]
 
 { #category : #ffi }

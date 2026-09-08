@@ -19,7 +19,7 @@ Class {
 	#name : #SPSAsyncProcess,
 	#superclass : #SPSAbstractProcess,
 	#instVars : [
-		'pid',
+		'processToken',
 		'exitCode',
 		'completionSemaphore',
 		'completionBlock',
@@ -112,7 +112,7 @@ SPSAsyncProcess >> terminate [
 	isComplete ifTrue: [ ^ self ].
 
 	stopRequested := true.
-	SPSProcessControl terminatePid: pid.
+	SPSProcessControl terminateProcess: processToken.
 	self reapChildIfNeeded.
 	self closeOutputChannels.
 	wasTerminated := true.
@@ -128,7 +128,7 @@ SPSAsyncProcess >> isSpawnSuccess [
 	 failure makes #run raise an error, this answers true as soon as the process
 	 exists (after a successful #run)."
 
-	^ pid notNil
+	^ processToken notNil
 ]
 
 { #category : #'api - testing' }
@@ -246,7 +246,7 @@ SPSAsyncProcess >> pollChildExitIfAny [
 
 	| statusBuffer result |
 	statusBuffer := ByteArray new: 4.
-	result := SPSSpawnLibrary uniqueInstance waitPid: pid block: 0 statusBuffer: statusBuffer.
+	result := SPSSpawnLibrary uniqueInstance waitPid: processToken block: 0 statusBuffer: statusBuffer.
 	result = 1 ifTrue: [
 		^ statusBuffer integerAt: 1 size: 4 signed: true ].
 	^ nil
@@ -257,7 +257,7 @@ SPSAsyncProcess >> reapChildIfNeeded [
 
 	| statusBuffer |
 	statusBuffer := ByteArray new: 4.
-	(SPSSpawnLibrary uniqueInstance waitPid: pid block: 1 statusBuffer: statusBuffer) = 1 ifTrue: [
+	(SPSSpawnLibrary uniqueInstance waitPid: processToken block: 1 statusBuffer: statusBuffer) = 1 ifTrue: [
 		"Reaped; nothing to do." ]
 ]
 
@@ -303,7 +303,7 @@ SPSAsyncProcess >> spawnProcess [
 	"Child ends and the stdin write end of the parent are closed; the child
 	 stdin pipe is not used by this package's readers."
 	self closeAllPipeFds: { childStdin. childStdout. childStderr. parentStdin }.
-	pid := spawnResult.
+	processToken := spawnResult.
 	stdOutFd := parentStdout.
 	stdErrFd := parentStderr.
 	SPSSpawnLibrary uniqueInstance fdSetNonBlocking: stdOutFd.
