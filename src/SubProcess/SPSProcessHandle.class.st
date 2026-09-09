@@ -5,7 +5,7 @@ or the process HANDLE on Windows, both passed back to the shim for waiting and
 killing.
 
 I encapsulate the child's exit lifecycle. A wait either blocks until the child
-exits (#waitForExit) or probes it once (#pollIfExited); once the exit status is
+exits (#waitForExit) or probes it once (#pollForExit); once the exit status is
 known I decode and cache an exit code. A child is reaped at most once (on
 Windows this closes the underlying HANDLE); after that, further waits answer the
 cached exit code without touching the shim.
@@ -57,7 +57,7 @@ SPSProcessHandle >> isReaped [
 ]
 
 { #category : #'api - lifecycle' }
-SPSProcessHandle >> pollIfExited [
+SPSProcessHandle >> pollForExit [
 
 	"Answer true if the child has exited, decoding and caching its exit code as a
 	 side effect. Non-blocking: answers false immediately while the child runs."

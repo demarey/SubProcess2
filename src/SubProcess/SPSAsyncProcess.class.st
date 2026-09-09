@@ -229,7 +229,7 @@ SPSAsyncProcess >> bothChannelsAtEof [
 SPSAsyncProcess >> watchCompletion [
 
 	watchWorker := [
-		[ stopRequested or: [ processHandle pollIfExited ] ] whileFalse: [
+		[ stopRequested or: [ processHandle pollForExit ] ] whileFalse: [
 			self pumpOutput.
 			(3 milliSeconds) asDelay wait ].
 		stopRequested ifFalse: [ self completeWithExitCode: processHandle exitCode ] ]
