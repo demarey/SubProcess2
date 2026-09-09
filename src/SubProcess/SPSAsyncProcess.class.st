@@ -288,11 +288,10 @@ SPSAsyncProcess >> newPipeReaderForFd: aFd storingCollectorIn: aCollectorStorer 
 { #category : #'private - lifecycle' }
 SPSAsyncProcess >> signalSpawnError: aByteArrayOrString code: anInteger [
 
-	| domain |
-	domain := 'SubProcess'.
-	(SPSError message: ((aByteArrayOrString isString
-		ifFalse: [ aByteArrayOrString decodeWith: self configuration encoding ]
-		ifTrue: [ aByteArrayOrString ])) code: anInteger domainString: domain) signal
+	(SPSError
+		message: (self decode: aByteArrayOrString)
+		code: anInteger
+		domainString: self class subProcessDomain) signal
 ]
 
 { #category : #'private - output' }

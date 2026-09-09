@@ -107,7 +107,7 @@ SPSProcess >> handleSpawnError: aByteArrayOrString code: anInteger [
 	self
 		errorMessage: aByteArrayOrString
 		errorCode: anInteger
-		domainString: 'SubProcess'
+		domainString: self class subProcessDomain
 ]
 
 { #category : #'private - spawning' }

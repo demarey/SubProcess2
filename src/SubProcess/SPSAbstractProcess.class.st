@@ -16,6 +16,14 @@ Class {
 }
 
 { #category : #constants }
+SPSAbstractProcess class >> subProcessDomain [
+
+	"Domain string attached to SPSError instances raised by this package."
+
+	^ 'SubProcess'
+]
+
+{ #category : #constants }
 SPSAbstractProcess class >> nullByte [
 
 	"The byte value terminating a C string."
