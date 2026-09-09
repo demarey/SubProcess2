@@ -97,9 +97,19 @@ SPSStdioPipes class >> newPipeUsing: anFfiLibrary kind: anInteger [
 	childBuffer := self newDescriptorBuffer.
 	^ [
 		(anFfiLibrary newPipe: anInteger parent: parentBuffer child: childBuffer) = 0
-			ifTrue: [ SPSPipeEnds parent: (self descriptorFrom: parentBuffer) child: (self descriptorFrom: childBuffer) ]
+			ifTrue: [ self pipeEndsFromParentBuffer: parentBuffer childBuffer: childBuffer ]
 			ifFalse: [ nil ] ]
 		ensure: [ parentBuffer free. childBuffer free ]
+]
+
+{ #category : #'private - creation' }
+SPSStdioPipes class >> pipeEndsFromParentBuffer: aParentBuffer childBuffer: aChildBuffer [
+
+	"Answer the SPSPipeEnds described by the descriptors stored in the buffers."
+
+	^ SPSPipeEnds
+		parent: (self descriptorFrom: aParentBuffer)
+		child: (self descriptorFrom: aChildBuffer)
 ]
 
 { #category : #'private - creation' }
