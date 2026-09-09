@@ -11,8 +11,7 @@ Class {
 		'stdOut',
 		'stdErr',
 		'isSpawnSuccess',
-		'error',
-		'processHandle'
+		'error'
 	],
 	#category : #SubProcess
 }
@@ -111,12 +110,9 @@ SPSProcess >> handleSpawnError: aByteArrayOrString code: anInteger [
 ]
 
 { #category : #'private - spawning' }
-SPSProcess >> handleSpawnSuccess: aProcessToken parentStdout: parentStdout parentStderr: parentStderr [
+SPSProcess >> processSpawnedWithParentStdout: parentStdout parentStderr: parentStderr [
 
 	self isSpawnSuccess: true.
-	processHandle := SPSProcessHandle value: aProcessToken.
-	self ffiLibrary fdSetNonBlocking: parentStdout.
-	self ffiLibrary fdSetNonBlocking: parentStderr.
 	self stdOut: (self readToEndFromFd: parentStdout).
 	self stdErr: (self readToEndFromFd: parentStderr).
 	parentStdout ifNotNil: [ self ffiLibrary closeFd: parentStdout ].

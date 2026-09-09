@@ -10,7 +10,8 @@ Class {
 	#classTraits : 'SPSTLibrary classTrait',
 	#instVars : [
 		'configuration',
-		'isComplete'
+		'isComplete',
+		'processHandle'
 	],
 	#category : #SubProcess
 }
@@ -229,6 +230,19 @@ SPSAbstractProcess >> handleSpawnError: aByteArrayOrString code: anInteger [
 
 { #category : #'private - spawning' }
 SPSAbstractProcess >> handleSpawnSuccess: aProcessToken parentStdout: parentStdout parentStderr: parentStderr [
+
+	"Template method: wire the process handle and make the parent stdout/stderr
+	 descriptors non-blocking, then delegate the subclass-specific follow-up
+	 (sync drains and waits, async builds the pipe readers)."
+
+	processHandle := SPSProcessHandle value: aProcessToken.
+	self ffiLibrary fdSetNonBlocking: parentStdout.
+	self ffiLibrary fdSetNonBlocking: parentStderr.
+	^ self processSpawnedWithParentStdout: parentStdout parentStderr: parentStderr
+]
+
+{ #category : #'private - spawning' }
+SPSAbstractProcess >> processSpawnedWithParentStdout: parentStdout parentStderr: parentStderr [
 
 	self subclassResponsibility
 ]

@@ -19,7 +19,6 @@ Class {
 	#name : #SPSAsyncProcess,
 	#superclass : #SPSAbstractProcess,
 	#instVars : [
-		'processHandle',
 		'completionSemaphore',
 		'completionBlock',
 		'outputLineBlock',
@@ -261,13 +260,10 @@ SPSAsyncProcess >> handleSpawnError: aByteArrayOrString code: anInteger [
 ]
 
 { #category : #'private - lifecycle' }
-SPSAsyncProcess >> handleSpawnSuccess: aProcessToken parentStdout: parentStdout parentStderr: parentStderr [
+SPSAsyncProcess >> processSpawnedWithParentStdout: parentStdout parentStderr: parentStderr [
 
-	processHandle := SPSProcessHandle value: aProcessToken.
 	stdOutFd := parentStdout.
 	stdErrFd := parentStderr.
-	self ffiLibrary fdSetNonBlocking: stdOutFd.
-	self ffiLibrary fdSetNonBlocking: stdErrFd.
 	readBuffer := self newOutputReadBuffer.
 	stdOutPipeReader := self newPipeReaderForFd: stdOutFd storingCollectorIn: [ :aStream | stdOutCollector := aStream ].
 	stdErrPipeReader := self newPipeReaderForFd: stdErrFd storingCollectorIn: [ :aStream | stdErrCollector := aStream ]
