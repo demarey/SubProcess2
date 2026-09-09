@@ -192,8 +192,8 @@ SPSAbstractProcess >> closeFd: anInteger [
 SPSAbstractProcess >> newPipeFor: aRole [
 
 	"Create an anonymous pipe whose child end is wired for the given child
-	 stream role (#stdin, #stdout or #stderr) and answer an array
-	 { parentFd. childFd }, or nil if the pipe cannot be created."
+	 stream role (#stdin, #stdout or #stderr) and answer an SPSPipeEnds holding
+	 the parent and child fds, or nil if the pipe cannot be created."
 
 	| kind parentBuffer childBuffer parent child |
 	kind := aRole = #stdin ifTrue: [ self class pipeStdinKind ]
@@ -205,9 +205,16 @@ SPSAbstractProcess >> newPipeFor: aRole [
 			ifTrue: [
 				parent := parentBuffer unsignedLongLongAt: 1.
 				child := childBuffer unsignedLongLongAt: 1.
-				{ parent. child } ]
+				SPSPipeEnds parent: parent child: child ]
 			ifFalse: [ nil ] ]
 		ensure: [ parentBuffer free. childBuffer free ]
+]
+
+{ #category : #private }
+SPSAbstractProcess >> closePipeEnds: aCollectionOfPipeEnds [
+
+	aCollectionOfPipeEnds do: [ :pipeEnds |
+		pipeEnds ifNotNil: [ self closeFd: pipeEnds parent. self closeFd: pipeEnds child ] ]
 ]
 
 { #category : #private }
@@ -218,7 +225,7 @@ SPSAbstractProcess >> cStringBytesFrom: aByteArray [
 
 	| index |
 	index := aByteArray indexOf: self class nullByte.
-	index = 0 ifTrue: [ ^ #() ].
+	index = 0 ifTrue: [ ^ ByteArray new: 0 ].
 	^ aByteArray first: index - 1
 ]
 
@@ -241,54 +248,83 @@ SPSAbstractProcess >> newOutputReadBuffer [
 	^ ByteArray new: self class outputReadBufferSize
 ]
 
+{ #category : #private }
+SPSAbstractProcess >> createStdioPipes [
+
+	"Create the three stdio pipes, answering them in {stdin. stdout. stderr}
+	 order or nil if any pipe could not be created. On failure the already
+	 created pipes are closed before answering nil."
+
+	| stdinPipe stdoutPipe stderrPipe |
+	stdinPipe := self newPipeFor: #stdin.
+	stdoutPipe := self newPipeFor: #stdout.
+	stderrPipe := self newPipeFor: #stderr.
+	(stdinPipe isNil or: [ stdoutPipe isNil or: [ stderrPipe isNil ] ])
+		ifTrue: [ self closePipeEnds: { stdinPipe. stdoutPipe. stderrPipe }. ^ nil ].
+	^ { stdinPipe. stdoutPipe. stderrPipe }
+]
+
 { #category : #'private - spawning' }
 SPSAbstractProcess >> spawnProcess [
 
 	"Template method that pipes and spawns a child OS process. It creates the
 	 three stdio pipes, invokes the native spawn shim and dispatches to the
-	 subclass hooks on failure or success."
+	 subclass hooks on failure or success.
 
-	| stdinPipe stdoutPipe stderrPipe
-	  childStdin childStdout childStderr
-	  parentStdin parentStdout parentStderr
-	  argsBlob cwd errBuf spawnResult |
+	 Ownership: this method always closes the child ends and the parent stdin
+	 end. parentStdout and parentStderr are handed open to the hook, which owns
+	 closing them (sync reads then closes, async keeps them as channels)."
 
-	stdinPipe := self newPipeFor: #stdin.
-	stdoutPipe := self newPipeFor: #stdout.
-	stderrPipe := self newPipeFor: #stderr.
-	(stdinPipe isNil or: [ stdoutPipe isNil or: [ stderrPipe isNil ] ])
-		ifTrue: [
-			{ stdinPipe. stdoutPipe. stderrPipe } do: [ :each | each ifNotNil: [ self closeFd: each first. self closeFd: each second ] ].
-			^ self handleSpawnError: 'Cannot create pipes' code: 0 ].
-
-	childStdin := stdinPipe second.
-	parentStdin := stdinPipe first.
-	childStdout := stdoutPipe second.
-	parentStdout := stdoutPipe first.
-	childStderr := stderrPipe second.
-	parentStderr := stderrPipe first.
+	| pipes argsBlob cwd errBuf spawnResult |
+	pipes := self createStdioPipes.
+	pipes ifNil: [ ^ self handleSpawnError: 'Cannot create pipes' code: 0 ].
 
 	argsBlob := self argsBlob.
 	cwd := self configuration workingDirectory ifNotNil: [ :file | file fullName ].
 	errBuf := ByteArray new: self class spawnErrorBufferSize.
-	spawnResult := self ffiLibrary
-		spawnStdin: childStdin
-		stdout: childStdout
-		stderr: childStderr
+	spawnResult := self
+		invokeSpawnWithPipes: pipes
+		args: argsBlob
+		cwd: cwd
+		errBuf: errBuf.
+
+	(self isSpawnFailure: spawnResult)
+		ifTrue: [
+			self closePipeEnds: pipes.
+			^ self handleSpawnError: (self cStringBytesFrom: errBuf) code: (0 - spawnResult) ].
+
+	self closeChildPipeEnds: pipes.
+	^ self handleSpawnSuccess: spawnResult parentStdout: (pipes second parent) parentStderr: (pipes third parent)
+]
+
+{ #category : #'private - spawning' }
+SPSAbstractProcess >> invokeSpawnWithPipes: pipes args: argsBlob cwd: cwd errBuf: errBuf [
+
+	"Invoke the native spawn shim with the file descriptors of the stdio pipes
+	 answered by #createStdioPipes, in {stdin. stdout. stderr} order."
+
+	^ self ffiLibrary
+		spawnStdin: (pipes first child)
+		stdout: (pipes second child)
+		stderr: (pipes third child)
 		args: argsBlob
 		argsLength: argsBlob byteSize
 		cwd: cwd
 		error: errBuf
-		errorLength: errBuf size.
+		errorLength: errBuf size
+]
 
-	(self isSpawnFailure: spawnResult)
-		ifTrue: [
-			self closeAllPipeFds: {
-				childStdin. parentStdin. childStdout. parentStdout. childStderr. parentStderr }.
-			^ self handleSpawnError: (self cStringBytesFrom: errBuf) code: (0 - spawnResult) ].
+{ #category : #'private - spawning' }
+SPSAbstractProcess >> closeChildPipeEnds: pipes [
 
-	self closeAllPipeFds: { childStdin. parentStdin. childStdout. childStderr }.
-	^ self handleSpawnSuccess: spawnResult parentStdout: parentStdout parentStderr: parentStderr
+	"Close the child ends of stdout and stderr and both ends of stdin; the
+	 parent ends of stdout and stderr are left open for the success hook (see
+	 #spawnProcess)."
+
+	self closeFd: (pipes first parent).
+	self closeFd: (pipes first child).
+	self closeFd: (pipes second child).
+	self closeFd: (pipes third child).
 ]
 
 { #category : #'private - spawning' }

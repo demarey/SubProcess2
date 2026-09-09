@@ -55,7 +55,7 @@ SPSProcess >> isSpawnSuccess [
 { #category : #'api - running' }
 SPSProcess >> run [
 
-	self spawn.
+	self spawnProcess.
 	isComplete := true.
 	self isSpawnSuccess ifFalse: [ self error signal ]
 ]
@@ -146,10 +146,4 @@ SPSProcess >> readToEndFromFd: aFd [
 					ifTrue: [ done := true ]
 					ifFalse: [ (self class readPollDelay) asDelay wait ] ] ].
 	^ output
-]
-
-{ #category : #private }
-SPSProcess >> spawn [
-
-	self spawnProcess
 ]
