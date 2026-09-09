@@ -5,17 +5,13 @@ process (#stdInChannel). I write bytes to the underlying file descriptor.
 Class {
 	#name : #SPSPipeWriter,
 	#superclass : #Object,
+	#traits : 'SPSTLibrary',
+	#classTraits : 'SPSTLibrary classTrait',
 	#instVars : [
 		'fd'
 	],
 	#category : #SubProcess
 }
-
-{ #category : #'ffi - library' }
-SPSPipeWriter >> ffiLibrary [
-
-	^ SPSSpawnLibrary uniqueInstance
-]
 
 { #category : #'instance creation' }
 SPSPipeWriter class >> fd: anInteger [

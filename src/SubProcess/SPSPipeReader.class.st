@@ -12,6 +12,8 @@ I own the underlying file descriptor and close it when I am released.
 Class {
 	#name : #SPSPipeReader,
 	#superclass : #Object,
+	#traits : 'SPSTLibrary',
+	#classTraits : 'SPSTLibrary classTrait',
 	#instVars : [
 		'fd',
 		'encoding',
@@ -38,12 +40,6 @@ SPSPipeReader class >> nextLinePollDelay [
 	"Delay while yielding in #nextLine when no line is buffered yet."
 
 	^ 2 milliSeconds
-]
-
-{ #category : #'ffi - library' }
-SPSPipeReader >> ffiLibrary [
-
-	^ SPSSpawnLibrary uniqueInstance
 ]
 
 { #category : #'instance creation' }

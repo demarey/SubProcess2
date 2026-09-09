@@ -16,6 +16,8 @@ detail.
 Class {
 	#name : #SPSProcessHandle,
 	#superclass : #Object,
+	#traits : 'SPSTLibrary',
+	#classTraits : 'SPSTLibrary classTrait',
 	#instVars : [
 		'value',
 		'exitCode',
@@ -80,12 +82,6 @@ SPSProcessHandle class >> waitStatusBufferSize [
 	"Size in bytes of the buffer receiving a wait status (a native int)."
 
 	^ 4
-]
-
-{ #category : #'ffi - library' }
-SPSProcessHandle >> ffiLibrary [
-
-	^ SPSSpawnLibrary uniqueInstance
 ]
 
 { #category : #'instance creation' }

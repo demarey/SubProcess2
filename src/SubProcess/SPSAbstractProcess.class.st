@@ -6,6 +6,8 @@ I use `SPSProcessConfiguration` to configure myself.
 Class {
 	#name : #SPSAbstractProcess,
 	#superclass : #Object,
+	#traits : 'SPSTLibrary',
+	#classTraits : 'SPSTLibrary classTrait',
 	#instVars : [
 		'configuration',
 		'isComplete'
@@ -72,12 +74,6 @@ SPSAbstractProcess class >> pipeStdoutKind [
 	 sps_pipe_kind_t enum."
 
 	^ 1
-]
-
-{ #category : #'ffi - library' }
-SPSAbstractProcess >> ffiLibrary [
-
-	^ SPSSpawnLibrary uniqueInstance
 ]
 
 { #category : #'instance creation' }
