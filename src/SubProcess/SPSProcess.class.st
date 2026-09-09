@@ -35,7 +35,7 @@ SPSProcess >> error [
 SPSProcess >> errorMessage: message errorCode: errorCode domainString: domainString [
 
 	error := SPSError
-		message: (message decodeWith: self configuration encoding)
+		message: (self decode: message)
 		code: errorCode
 		domainString: domainString
 ]
@@ -69,7 +69,7 @@ SPSProcess >> stdErr [
 { #category : #private }
 SPSProcess >> stdErr: aByteArray [
 
-	stdErr := aByteArray ifNotNil: [ aByteArray decodeWith: self configuration encoding ]
+	stdErr := aByteArray ifNotNil: [ self decode: aByteArray ]
 ]
 
 { #category : #'api - accessing' }
@@ -81,7 +81,7 @@ SPSProcess >> stdOut [
 { #category : #private }
 SPSProcess >> stdOut: aByteArray [
 
-	stdOut := aByteArray ifNotNil: [ aByteArray decodeWith: self configuration encoding ]
+	stdOut := aByteArray ifNotNil: [ self decode: aByteArray ]
 ]
 
 { #category : #private }
@@ -100,6 +100,29 @@ SPSProcess >> terminate [
 	processHandle ifNotNil: [ processHandle terminate ]
 ]
 
+{ #category : #'private - spawning' }
+SPSProcess >> handleSpawnError: aByteArrayOrString code: anInteger [
+
+	self isSpawnSuccess: false.
+	self
+		errorMessage: aByteArrayOrString
+		errorCode: anInteger
+		domainString: 'SubProcess'
+]
+
+{ #category : #'private - spawning' }
+SPSProcess >> handleSpawnSuccess: aProcessToken parentStdout: parentStdout parentStderr: parentStderr [
+
+	self isSpawnSuccess: true.
+	processHandle := SPSProcessHandle value: aProcessToken.
+	self ffiLibrary fdSetNonBlocking: parentStdout.
+	self ffiLibrary fdSetNonBlocking: parentStderr.
+	self stdOut: (self readToEndFromFd: parentStdout).
+	self stdErr: (self readToEndFromFd: parentStderr).
+	self closeAllPipeFds: { parentStdout. parentStderr }.
+	processHandle waitForExit
+]
+
 { #category : #private }
 SPSProcess >> readToEndFromFd: aFd [
 
@@ -110,7 +133,7 @@ SPSProcess >> readToEndFromFd: aFd [
 
 	| library chunk output done count |
 	library := self ffiLibrary.
-	chunk := ByteArray new: self class outputReadBufferSize.
+	chunk := self newOutputReadBuffer.
 	output := ByteArray new: 0.
 	done := false.
 
@@ -128,57 +151,5 @@ SPSProcess >> readToEndFromFd: aFd [
 { #category : #private }
 SPSProcess >> spawn [
 
-	| stdinPipe stdoutPipe stderrPipe
-	  childStdin childStdout childStderr
-	  parentStdin parentStdout parentStderr
-	  argsBlob cwd errBuf spawnResult |
-
-	stdinPipe := self newPipeFor: #stdin.
-	stdoutPipe := self newPipeFor: #stdout.
-	stderrPipe := self newPipeFor: #stderr.
-	(stdinPipe isNil or: [ stdoutPipe isNil or: [ stderrPipe isNil ] ])
-		ifTrue: [
-			{ stdinPipe. stdoutPipe. stderrPipe } do: [ :each | each ifNotNil: [ self closeFd: each first. self closeFd: each second ] ].
-			self isSpawnSuccess: false.
-			self errorMessage: 'Cannot create pipes' errorCode: 0 domainString: 'SubProcess'.
-			^ self ].
-
-	childStdin := stdinPipe second.
-	parentStdin := stdinPipe first.
-	childStdout := stdoutPipe second.
-	parentStdout := stdoutPipe first.
-	childStderr := stderrPipe second.
-	parentStderr := stderrPipe first.
-
-	argsBlob := self argsBlob.
-	cwd := self configuration workingDirectory ifNotNil: [ :file | file fullName ].
-	errBuf := ByteArray new: self class spawnErrorBufferSize.
-	spawnResult := self ffiLibrary
-		spawnStdin: childStdin
-		stdout: childStdout
-		stderr: childStderr
-		args: argsBlob
-		argsLength: argsBlob byteSize
-		cwd: cwd
-		error: errBuf
-		errorLength: errBuf size.
-	(self isSpawnFailure: spawnResult)
-		ifTrue: [
-			self closeAllPipeFds: {
-				childStdin. parentStdin. childStdout. parentStdout. childStderr. parentStderr }.
-			self isSpawnSuccess: false.
-			self
-				errorMessage: (self cStringBytesFrom: errBuf)
-				errorCode: (0 - spawnResult)
-				domainString: 'SubProcess' ]
-		ifFalse: [
-			self closeAllPipeFds: { childStdin. parentStdin. childStdout. childStderr }.
-			self isSpawnSuccess: true.
-			processHandle := SPSProcessHandle value: spawnResult.
-			self ffiLibrary fdSetNonBlocking: parentStdout.
-			self ffiLibrary fdSetNonBlocking: parentStderr.
-			self stdOut: (self readToEndFromFd: parentStdout).
-			self stdErr: (self readToEndFromFd: parentStderr).
-			self closeAllPipeFds: { parentStdout. parentStderr }.
-			processHandle waitForExit ]
+	self spawnProcess
 ]

@@ -255,62 +255,33 @@ SPSAsyncProcess >> watchCompletion [
 ]
 
 { #category : #'private - lifecycle' }
-SPSAsyncProcess >> spawnProcess [
+SPSAsyncProcess >> handleSpawnError: aByteArrayOrString code: anInteger [
 
-	| stdinPipe stdoutPipe stderrPipe
-	  childStdin childStdout childStderr
-	  parentStdin parentStdout parentStderr
-	  argsBlob cwd errBuf spawnResult |
-	stdinPipe := self newPipeFor: #stdin.
-	stdoutPipe := self newPipeFor: #stdout.
-	stderrPipe := self newPipeFor: #stderr.
-	(stdinPipe isNil or: [ stdoutPipe isNil or: [ stderrPipe isNil ] ])
-		ifTrue: [ self signalSpawnError: 'Cannot create pipes' code: 0 ].
+	self signalSpawnError: aByteArrayOrString code: anInteger
+]
 
-	childStdin := stdinPipe second.
-	parentStdin := stdinPipe first.
-	childStdout := stdoutPipe second.
-	parentStdout := stdoutPipe first.
-	childStderr := stderrPipe second.
-	parentStderr := stderrPipe first.
+{ #category : #'private - lifecycle' }
+SPSAsyncProcess >> handleSpawnSuccess: aProcessToken parentStdout: parentStdout parentStderr: parentStderr [
 
-	argsBlob := self argsBlob.
-	cwd := self configuration workingDirectory ifNotNil: [ :file | file fullName ].
-	errBuf := ByteArray new: self class spawnErrorBufferSize.
-	spawnResult := self ffiLibrary
-		spawnStdin: childStdin
-		stdout: childStdout
-		stderr: childStderr
-		args: argsBlob
-		argsLength: argsBlob byteSize
-		cwd: cwd
-		error: errBuf
-		errorLength: errBuf size.
-
-	(self isSpawnFailure: spawnResult)
-		ifTrue: [
-			self closeAllPipeFds: {
-				childStdin. parentStdin. childStdout. parentStdout. childStderr. parentStderr }.
-			self signalSpawnError: (self cStringBytesFrom: errBuf) code: (0 - spawnResult) ].
-
-	"Child ends and the stdin write end of the parent are closed; the child
-	 stdin pipe is not used by this package's readers."
-	self closeAllPipeFds: { childStdin. childStdout. childStderr. parentStdin }.
-	processHandle := SPSProcessHandle value: spawnResult.
+	processHandle := SPSProcessHandle value: aProcessToken.
 	stdOutFd := parentStdout.
 	stdErrFd := parentStderr.
 	self ffiLibrary fdSetNonBlocking: stdOutFd.
 	self ffiLibrary fdSetNonBlocking: stdErrFd.
-	readBuffer := ByteArray new: self class outputReadBufferSize.
-	stdOutPipeReader := SPSPipeReader
-		fd: stdOutFd
+	readBuffer := self newOutputReadBuffer.
+	stdOutPipeReader := self newPipeReaderForFd: stdOutFd storingCollectorIn: [ :aStream | stdOutCollector := aStream ].
+	stdErrPipeReader := self newPipeReaderForFd: stdErrFd storingCollectorIn: [ :aStream | stdErrCollector := aStream ]
+]
+
+{ #category : #'private - output' }
+SPSAsyncProcess >> newPipeReaderForFd: aFd storingCollectorIn: aCollectorStorer [
+
+	^ SPSPipeReader
+		fd: aFd
 		encoding: self configuration encoding
-		collector: (self configuration shouldCollectOutput ifTrue: [ stdOutCollector := WriteStream on: String new ] ifFalse: [ nil ])
-		outputLineBlock: outputLineBlock.
-	stdErrPipeReader := SPSPipeReader
-		fd: stdErrFd
-		encoding: self configuration encoding
-		collector: (self configuration shouldCollectOutput ifTrue: [ stdErrCollector := WriteStream on: String new ] ifFalse: [ nil ])
+		collector: (self configuration shouldCollectOutput
+			ifTrue: [ aCollectorStorer value: (WriteStream on: String new) ]
+			ifFalse: [ nil ])
 		outputLineBlock: outputLineBlock
 ]
 

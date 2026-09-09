@@ -213,3 +213,84 @@ SPSAbstractProcess >> cStringBytesFrom: aByteArray [
 	index = 0 ifTrue: [ ^ #() ].
 	^ aByteArray first: index - 1
 ]
+
+{ #category : #private }
+SPSAbstractProcess >> decode: aByteArrayOrString [
+
+	"Decode raw bytes produced by a child process into a Pharo String using the
+	 configured encoding. Strings are returned untouched."
+
+	^ aByteArrayOrString isString
+		ifTrue: [ aByteArrayOrString ]
+		ifFalse: [ aByteArrayOrString decodeWith: self configuration encoding ]
+]
+
+{ #category : #private }
+SPSAbstractProcess >> newOutputReadBuffer [
+
+	"Answer a fresh byte buffer used for a single read of a child pipe."
+
+	^ ByteArray new: self class outputReadBufferSize
+]
+
+{ #category : #'private - spawning' }
+SPSAbstractProcess >> spawnProcess [
+
+	"Template method that pipes and spawns a child OS process. It creates the
+	 three stdio pipes, invokes the native spawn shim and dispatches to the
+	 subclass hooks on failure or success."
+
+	| stdinPipe stdoutPipe stderrPipe
+	  childStdin childStdout childStderr
+	  parentStdin parentStdout parentStderr
+	  argsBlob cwd errBuf spawnResult |
+
+	stdinPipe := self newPipeFor: #stdin.
+	stdoutPipe := self newPipeFor: #stdout.
+	stderrPipe := self newPipeFor: #stderr.
+	(stdinPipe isNil or: [ stdoutPipe isNil or: [ stderrPipe isNil ] ])
+		ifTrue: [
+			{ stdinPipe. stdoutPipe. stderrPipe } do: [ :each | each ifNotNil: [ self closeFd: each first. self closeFd: each second ] ].
+			^ self handleSpawnError: 'Cannot create pipes' code: 0 ].
+
+	childStdin := stdinPipe second.
+	parentStdin := stdinPipe first.
+	childStdout := stdoutPipe second.
+	parentStdout := stdoutPipe first.
+	childStderr := stderrPipe second.
+	parentStderr := stderrPipe first.
+
+	argsBlob := self argsBlob.
+	cwd := self configuration workingDirectory ifNotNil: [ :file | file fullName ].
+	errBuf := ByteArray new: self class spawnErrorBufferSize.
+	spawnResult := self ffiLibrary
+		spawnStdin: childStdin
+		stdout: childStdout
+		stderr: childStderr
+		args: argsBlob
+		argsLength: argsBlob byteSize
+		cwd: cwd
+		error: errBuf
+		errorLength: errBuf size.
+
+	(self isSpawnFailure: spawnResult)
+		ifTrue: [
+			self closeAllPipeFds: {
+				childStdin. parentStdin. childStdout. parentStdout. childStderr. parentStderr }.
+			^ self handleSpawnError: (self cStringBytesFrom: errBuf) code: (0 - spawnResult) ].
+
+	self closeAllPipeFds: { childStdin. parentStdin. childStdout. childStderr }.
+	^ self handleSpawnSuccess: spawnResult parentStdout: parentStdout parentStderr: parentStderr
+]
+
+{ #category : #'private - spawning' }
+SPSAbstractProcess >> handleSpawnError: aByteArrayOrString code: anInteger [
+
+	self subclassResponsibility
+]
+
+{ #category : #'private - spawning' }
+SPSAbstractProcess >> handleSpawnSuccess: aProcessToken parentStdout: parentStdout parentStderr: parentStderr [
+
+	self subclassResponsibility
+]
