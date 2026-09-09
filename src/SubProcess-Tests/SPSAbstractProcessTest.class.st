@@ -32,12 +32,12 @@ SPSAbstractProcessTest >> testCStringBytesFromExcludesTerminator [
 
 	| buffer |
 	buffer := #[104 101 108 108 111 0 1 2 3].
-	self assert: (process cStringBytesFrom: buffer) equals: 'hello' asByteArray.
+	self assert: (process cStringBytesFrom: buffer) equals: #[104 101 108 108 111].
 ]
 
 { #category : #tests }
 SPSAbstractProcessTest >> testCStringBytesFromStopsAtFirstTerminator [
 
 	self assert: (process cStringBytesFrom: (ByteArray with: 65 with: 0 with: 66))
-		equals: 'A' asByteArray.
+		equals: #[65].
 ]
