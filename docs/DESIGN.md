@@ -59,15 +59,19 @@ lives in Smalltalk:
   `ReadFile` emulation (returning 0 on broken-pipe EOF, −1 when no data is
   currently available). `sps_close`, `sps_wait` and `sps_kill` abstract the
   remaining platform differences, including encoding exit codes into a
-  POSIX-like wait status on Windows so the shared `decodeExitCodeFromWaitStatus:`
-  works unmodified. There is no Unix/Windows branching in Smalltalk.
+  POSIX-like wait status on Windows so the shared exit-code decoding
+  (in `SPSProcessHandle`) works unmodified. There is no Unix/Windows branching
+  in Smalltalk.
 * **One opaque process token on every platform** — the real OS pid on Unix and
-  the `CreateProcess` HANDLE on Windows. The rest of the package treats exit
-  and wait handling uniformly via `sps_wait`-based polling and
-  `decodeExitCodeFromWaitStatus:`. Because a Windows process object is
+  the `CreateProcess` HANDLE on Windows. It is wrapped by `SPSProcessHandle`,
+  the package's Smalltalk-side reference to the child, which exposes
+  `waitForExit` / `pollIfExited` / `terminate` and caches the decoded exit code.
+  Because a Windows process object is
   destroyed once it exits and its last handle is closed (so it can no longer
   be re-opened by pid), the spawn token *is* the retained open handle, and
-  `sps_wait` reaps and closes it once the exit is reported. This keeps the
+  `sps_wait` reaps and closes it once the exit is reported. `SPSProcessHandle`
+  reaps at most once: a later wait answers the cached exit code without
+  touching the shim. This keeps the
   shim stateless: there is no registry of child processes.
 * **The caller must close its own copy of each child-facing descriptor** after a
   successful spawn (the read end of the stdin pipe and the write ends of the
@@ -85,8 +89,8 @@ lives in Smalltalk:
 3. Put the parent stdout/stderr fds in non-blocking mode and **read each pipe to
    EOF** (`readToEndFromFd:`): a negative `read` means no data yet (yield and
    retry), `0` means EOF (stop). Raw bytes accumulate into a `ByteArray`.
-4. Blocking `waitpid(pid, options: 0)`; decode the wait status into the exit
-   code.
+4. `processHandle waitForExit` (blocking `waitpid(pid, options: 0)`); the handle
+   decodes the wait status into the exit code and caches it.
 
 This gives a flat blocking API: `run`, `stdOut`, `stdErr`, `exitCode`,
 `isSpawnSuccess`, `isComplete`.
@@ -107,14 +111,15 @@ background:
   goes through `SPSSpawnLibrary`, so the reader/writer code paths are identical
   on every platform.
 * **Completion** is announced only after the pipes are drained to EOF
-  (`drainOutputToEof`), so collected output is complete: set `exitCode`, signal a
-  `completionSemaphore`, set `isComplete`, then `announceCompleted`.
+  (`drainOutputToEof`), so collected output is complete: read the cached
+  `exitCode` from the handle, signal a `completionSemaphore`, set `isComplete`,
+  then `announceCompleted`.
 * `runAndWaitTimeOut:` waits on the semaphore; on timeout it calls `terminate`.
-* `terminate` **hard-kills** the child (`SPSProcessControl terminatePid:` →
+* `terminate` **hard-kills** the child (`processHandle terminate` →
   SIGKILL on Unix, `TerminateProcess` on Windows, matching GLib's
   `g_subprocess_force_exit`), then does a cooperative shutdown: sets
   `stopRequested` so the watcher loop exits deterministically, reaps (blocking
-  `sps_wait`), closes the channels, and marks complete/signals.
+  `processHandle waitForExit`), closes the channels, and marks complete/signals.
 
 ## Design choices & tradeoffs
 
@@ -131,7 +136,9 @@ background:
   small periodic CPU burn (~every 3 ms) and output latency of roughly one poll
   tick. It avoids the complexity (and one thread per channel) of ThreadedFFI;
   `select()` was not exposed through the shim to keep the FFI surface minimal.
-* **Real OS pid everywhere.** Uniform exit/wait handling across platforms.
+* **One opaque process token everywhere**, surfaced as `SPSProcessHandle`.
+  Uniform exit/wait handling across platforms; the handle caches the decoded
+  exit code and reaps at most once.
 * **Uniform pipe I/O in the shim.** Because Windows uses `HANDLE`s while Unix
   uses `int` fds, all pipe I/O (create, read, write, close) and lifecycle
   (wait, kill) is delegated to the shim behind the opaque `sps_fd_t` type. The
@@ -141,7 +148,7 @@ background:
   `terminate` sends SIGKILL/`TerminateProcess`, then the shutdown sequence
   (stop + reap + close) is cooperative so the watcher exits cleanly and
   `runAndWaitTimeOut:` never hangs. Sync `terminate` kills the same way
-  (`SPSProcessControl terminatePid:`) and is a no-op once complete, so it is safe
+  (`processHandle terminate`) and is a no-op once complete, so it is safe
   to call in a `tearDown`. Caveat: SIGKILL cannot interrupt a process
   stuck in uninterruptible sleep, but callers still return because
   `isComplete`/the semaphore are set regardless of whether the child was reaped.

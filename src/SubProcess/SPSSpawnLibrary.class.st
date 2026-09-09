@@ -8,14 +8,15 @@ dependency. I expose the whole process I/O surface the package needs:
   stream descriptors and working directory;
 - `read:buffer:size:` / `write:buffer:size:` / `closeFd:` / `fdSetNonBlocking:`
   to move bytes on a pipe descriptor;
-- `waitPid:block:status:` to wait for a child;
-- `killPid:` to terminate a child.
+- `waitProcess:block:status:` to wait for a child;
+- `killProcess:` to terminate a child.
 
 Descriptors (`sps_fd_t`) are unsigned integers that look like Unix file
 descriptors on Unix and HANDLEs on Windows; the shim owns every platform
-detail, so this class is fully platform-agnostic. The child token returned by
+detail, so this class is fully platform-agnostic. The token returned by
 `spawnStdin:...` is an opaque extended integer: the real OS process id on Unix
-and the process HANDLE on Windows, passed back to `waitPid:` / `killPid:`.
+and the process HANDLE on Windows, passed back to `waitProcess:` /
+`killProcess:`. SPSProcessHandle wraps it and exposes the wait/kill lifecycle.
 "
 Class {
 	#name : #SPSSpawnLibrary,
@@ -60,7 +61,7 @@ SPSSpawnLibrary >> fdSetNonBlocking: aFd [
 ]
 
 { #category : #ffi }
-SPSSpawnLibrary >> killPid: aToken [
+SPSSpawnLibrary >> killProcess: aToken [
 
 	^ self ffiCall: #(int sps_kill(longlong aToken))
 ]
@@ -89,7 +90,7 @@ SPSSpawnLibrary >> spawnStdin: aStdinFd stdout: aStdoutFd stderr: aStderrFd args
 ]
 
 { #category : #ffi }
-SPSSpawnLibrary >> waitPid: aToken block: aBlock statusBuffer: aStatusBuffer [
+SPSSpawnLibrary >> waitProcess: aToken block: aBlock statusBuffer: aStatusBuffer [
 
 	"Wait for the child identified by aToken. Answers 1 once it has exited
 	 (writing a wait status into the 4-byte aStatusBuffer), 0 while it is still

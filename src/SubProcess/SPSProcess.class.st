@@ -12,8 +12,7 @@ Class {
 		'stdErr',
 		'isSpawnSuccess',
 		'error',
-		'exitCode',
-		'processToken'
+		'processHandle'
 	],
 	#category : #SubProcess
 }
@@ -36,13 +35,7 @@ SPSProcess >> errorMessage: message errorCode: errorCode domainString: domainStr
 { #category : #'api - accessing' }
 SPSProcess >> exitCode [
 
-	^ exitCode
-]
-
-{ #category : #private }
-SPSProcess >> exitCode: anInteger [
-
-	exitCode := anInteger
+	^ processHandle ifNotNil: [ processHandle exitCode ]
 ]
 
 { #category : #'api - testing' }
@@ -96,7 +89,7 @@ SPSProcess >> terminate [
 	 can safely be called in a tearDown after #run returned."
 
 	isComplete ifTrue: [ ^ self ].
-	processToken ifNotNil: [ SPSProcessControl terminateProcess: processToken ]
+	processHandle ifNotNil: [ processHandle terminate ]
 ]
 
 { #category : #private }
@@ -173,22 +166,11 @@ SPSProcess >> spawn [
 		ifFalse: [
 			self closeAllPipeFds: { childStdin. parentStdin. childStdout. childStderr }.
 			self isSpawnSuccess: true.
-			processToken := spawnResult.
+			processHandle := SPSProcessHandle value: spawnResult.
 			SPSSpawnLibrary uniqueInstance fdSetNonBlocking: parentStdout.
 			SPSSpawnLibrary uniqueInstance fdSetNonBlocking: parentStderr.
 			self stdOut: (self readToEndFromFd: parentStdout).
 			self stdErr: (self readToEndFromFd: parentStderr).
 			self closeAllPipeFds: { parentStdout. parentStderr }.
-			self waitExitStatusOfPid: spawnResult ]
-]
-
-{ #category : #private }
-SPSProcess >> waitExitStatusOfPid: aToken [
-
-	| library statusBuffer decoded |
-	library := SPSSpawnLibrary uniqueInstance.
-	statusBuffer := ByteArray new: 4.
-	library waitPid: aToken block: 1 statusBuffer: statusBuffer.
-	decoded := statusBuffer integerAt: 1 size: 4 signed: true.
-	self exitCode: (self decodeExitCodeFromWaitStatus: decoded)
+			processHandle waitForExit ]
 ]

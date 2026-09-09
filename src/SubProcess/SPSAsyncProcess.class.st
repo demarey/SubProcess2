@@ -19,8 +19,7 @@ Class {
 	#name : #SPSAsyncProcess,
 	#superclass : #SPSAbstractProcess,
 	#instVars : [
-		'processToken',
-		'exitCode',
+		'processHandle',
 		'completionSemaphore',
 		'completionBlock',
 		'outputLineBlock',
@@ -46,10 +45,9 @@ SPSAsyncProcess >> announceCompleted [
 ]
 
 { #category : #'private - lifecycle' }
-SPSAsyncProcess >> completeWithWaitStatus: aWaitStatus [
+SPSAsyncProcess >> completeWithExitCode: anExitCode [
 
 	self drainOutputToEof.
-	exitCode := self decodeExitCodeFromWaitStatus: aWaitStatus.
 	completionSemaphore signal.
 	isComplete := true.
 	self announceCompleted
@@ -75,7 +73,7 @@ SPSAsyncProcess >> exitCode [
 	"Answer the exit code of the child process, or nil if the process has not
 	 completed yet or did not exit normally."
 
-	^ exitCode
+	^ processHandle ifNotNil: [ processHandle exitCode ]
 ]
 
 { #category : #'api - running' }
@@ -112,8 +110,9 @@ SPSAsyncProcess >> terminate [
 	isComplete ifTrue: [ ^ self ].
 
 	stopRequested := true.
-	SPSProcessControl terminateProcess: processToken.
-	self reapChildIfNeeded.
+	processHandle ifNotNil: [
+		processHandle terminate.
+		processHandle waitForExit ].
 	self closeOutputChannels.
 	wasTerminated := true.
 	isComplete := true.
@@ -128,7 +127,7 @@ SPSAsyncProcess >> isSpawnSuccess [
 	 failure makes #run raise an error, this answers true as soon as the process
 	 exists (after a successful #run)."
 
-	^ processToken notNil
+	^ processHandle isNotNil
 ]
 
 { #category : #'api - testing' }
@@ -229,36 +228,13 @@ SPSAsyncProcess >> bothChannelsAtEof [
 { #category : #'private - lifecycle' }
 SPSAsyncProcess >> watchCompletion [
 
-	| status |
 	watchWorker := [
-		status := nil.
-		[ stopRequested or: [ status notNil ] ] whileFalse: [
+		[ stopRequested or: [ processHandle pollIfExited ] ] whileFalse: [
 			self pumpOutput.
-			status := self pollChildExitIfAny.
-			status isNil ifTrue: [ (3 milliSeconds) asDelay wait ] ].
-		stopRequested ifFalse: [ self completeWithWaitStatus: status ] ]
+			(3 milliSeconds) asDelay wait ].
+		stopRequested ifFalse: [ self completeWithExitCode: processHandle exitCode ] ]
 		forkAt: Processor userBackgroundPriority
 		named: 'SubProcess-completion-watch'
-]
-
-{ #category : #'private - lifecycle' }
-SPSAsyncProcess >> pollChildExitIfAny [
-
-	| statusBuffer result |
-	statusBuffer := ByteArray new: 4.
-	result := SPSSpawnLibrary uniqueInstance waitPid: processToken block: 0 statusBuffer: statusBuffer.
-	result = 1 ifTrue: [
-		^ statusBuffer integerAt: 1 size: 4 signed: true ].
-	^ nil
-]
-
-{ #category : #'private - lifecycle' }
-SPSAsyncProcess >> reapChildIfNeeded [
-
-	| statusBuffer |
-	statusBuffer := ByteArray new: 4.
-	(SPSSpawnLibrary uniqueInstance waitPid: processToken block: 1 statusBuffer: statusBuffer) = 1 ifTrue: [
-		"Reaped; nothing to do." ]
 ]
 
 { #category : #'private - lifecycle' }
@@ -303,7 +279,7 @@ SPSAsyncProcess >> spawnProcess [
 	"Child ends and the stdin write end of the parent are closed; the child
 	 stdin pipe is not used by this package's readers."
 	self closeAllPipeFds: { childStdin. childStdout. childStderr. parentStdin }.
-	processToken := spawnResult.
+	processHandle := SPSProcessHandle value: spawnResult.
 	stdOutFd := parentStdout.
 	stdErrFd := parentStderr.
 	SPSSpawnLibrary uniqueInstance fdSetNonBlocking: stdOutFd.

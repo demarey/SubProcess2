@@ -140,15 +140,3 @@ SPSAbstractProcess >> cStringBytesFrom: aByteArray [
 	index = 0 ifTrue: [ ^ #() ].
 	^ aByteArray first: index - 1
 ]
-
-{ #category : #private }
-SPSAbstractProcess >> decodeExitCodeFromWaitStatus: anInteger [
-
-	"Decode a child wait status following the POSIX WIFEXITED/WEXITSTATUS
-	 rules: a normal exit yields the low 8 bits of the shifted status; any
-	 other termination (e.g. killed by a signal) has no simple exit code, so
-	 we answer nil (matching GLib's behaviour of reporting no exit code)."
-
-	(anInteger bitAnd: 16r7F) = 0 ifTrue: [ ^ (anInteger bitShift: -8) bitAnd: 16rFF ].
-	^ nil
-]
