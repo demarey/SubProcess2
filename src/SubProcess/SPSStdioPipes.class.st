@@ -92,17 +92,30 @@ SPSStdioPipes class >> newPipeUsing: anFfiLibrary kind: anInteger [
 	 SPSPipeEnds holding the parent and child fds, or nil if the pipe cannot be
 	 created."
 
-	| parentBuffer childBuffer parent child |
-	parentBuffer := ExternalAddress allocate: self pipeDescriptorBufferSize.
-	childBuffer := ExternalAddress allocate: self pipeDescriptorBufferSize.
+	| parentBuffer childBuffer |
+	parentBuffer := self newDescriptorBuffer.
+	childBuffer := self newDescriptorBuffer.
 	^ [
 		(anFfiLibrary newPipe: anInteger parent: parentBuffer child: childBuffer) = 0
-			ifTrue: [
-				parent := parentBuffer unsignedLongLongAt: 1.
-				child := childBuffer unsignedLongLongAt: 1.
-				SPSPipeEnds parent: parent child: child ]
+			ifTrue: [ SPSPipeEnds parent: (self descriptorFrom: parentBuffer) child: (self descriptorFrom: childBuffer) ]
 			ifFalse: [ nil ] ]
 		ensure: [ parentBuffer free. childBuffer free ]
+]
+
+{ #category : #'private - creation' }
+SPSStdioPipes class >> newDescriptorBuffer [
+
+	"Answer an allocated buffer large enough to hold one descriptor."
+
+	^ ExternalAddress allocate: self pipeDescriptorBufferSize
+]
+
+{ #category : #'private - creation' }
+SPSStdioPipes class >> descriptorFrom: anAddress [
+
+	"Answer the descriptor (uintptr_t) written by the spawn shim into anAddress."
+
+	^ anAddress unsignedLongLongAt: 1
 ]
 
 { #category : #accessing }
