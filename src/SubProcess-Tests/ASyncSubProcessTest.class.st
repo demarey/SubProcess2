@@ -1,9 +1,6 @@
 Class {
 	#name : #ASyncSubProcessTest,
-	#superclass : #TestCase,
-	#instVars : [
-		'process'
-	],
+	#superclass : #SPSProcessTestCase,
 	#category : #'SubProcess-Tests'
 }
 
@@ -50,14 +47,6 @@ ASyncSubProcessTest class >> noNewlinePayloadBytes [
 ]
 
 { #category : #constants }
-ASyncSubProcessTest class >> nonZeroExitCode [
-
-	"Exit code used to assert a non-successful process completion."
-
-	^ 42
-]
-
-{ #category : #constants }
 ASyncSubProcessTest class >> streamingLineCount [
 
 	"Number of lines emitted by the streaming-output test."
@@ -79,33 +68,6 @@ ASyncSubProcessTest class >> successExitCode [
 	"Exit code asserted on successful process completion."
 
 	^ 0
-]
-
-{ #category : #constants }
-ASyncSubProcessTest class >> waitForPollDelay [
-
-	"Delay between polls while #waitFor: polls its predicate."
-
-	^ 20 milliSeconds
-]
-
-{ #category : #testing }
-ASyncSubProcessTest >> skipIfRunningOnWindows [
-
-	self isRunningOnWindows ifTrue: [ self skip: 'skipping unix test']
-]
-
-{ #category : #testing }
-ASyncSubProcessTest >> isRunningOnWindows [
-
-	^ OSPlatform current isWindows
-]
-
-{ #category : #running }
-ASyncSubProcessTest >> tearDown [
-
-	process ifNotNil: [ process terminate ].
-	super tearDown.
 ]
 
 { #category : #'helpers - building' }
@@ -145,19 +107,6 @@ ASyncSubProcessTest >> newProcessConfigurationProducingLines: anInteger [
 ]
 
 { #category : #'helpers - building' }
-ASyncSubProcessTest >> newProcessConfigurationWithShellCommand: anExpression [
-
-	"Answer a configuration running anExpression through the platform's shell."
-
-	| config |
-	config := SPSProcessConfiguration new.
-	self isRunningOnWindows
-		ifTrue: [ config command: 'C:\Windows\System32\cmd.exe'; addArgument: '/C'; addArgument: anExpression ]
-		ifFalse: [ config command: '/bin/sh'; arguments: { '-c'. anExpression } ].
-	^ config
-]
-
-{ #category : #'helpers - building' }
 ASyncSubProcessTest >> newProcessConfigurationWritingBytesWithoutNewlines: anInteger [
 
 	"Answer a configuration emitting anInteger bytes on stdout with no line
@@ -168,19 +117,6 @@ ASyncSubProcessTest >> newProcessConfigurationWritingBytesWithoutNewlines: anInt
 		ifTrue: [ ^ self newProcessConfigurationWithShellCommand: ('powershell -Command "Write-Output -NoNewline (''a'' * {1})"' format: { anInteger }) ].
 	^ self newProcessConfigurationWithShellCommand:
 		('head -c {1} /dev/zero | tr ''\\0'' ''a''' format: { anInteger })
-]
-
-{ #category : #'helpers - waiting' }
-ASyncSubProcessTest >> waitFor: aBlock within: aDuration [
-
-	"Poll every 20ms until aBlock answers true or aDuration elapses.
-	 Answer whether aBlock answered true before the deadline."
-
-	| deadline |
-	deadline := DateAndTime now + aDuration.
-	[ aBlock value or: [ DateAndTime now > deadline ] ]
-		whileFalse: [ (self class waitForPollDelay) asDelay wait ].
-	^ aBlock value
 ]
 
 { #category : #'helpers - waiting' }
@@ -339,10 +275,7 @@ ASyncSubProcessTest >> testRunningANonExistingCommand [
 	 (the async spawn failure path signals it rather than setting a flag)."
 
 	self skipIfRunningOnWindows.
-	process := SPSProcessConfiguration new
-		command: 'non_exisiting_command';
-		arguments: #('foo' 'bar');
-		async.
+	process := self newProcessConfigurationForNonExistingCommand async.
 
 	self
 		should: [ process run ]

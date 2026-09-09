@@ -1,54 +1,13 @@
 Class {
 	#name : #SyncSubProcessTest,
-	#superclass : #TestCase,
-	#instVars : [
-		'process'
-	],
+	#superclass : #SPSProcessTestCase,
 	#category : #'SubProcess-Tests'
 }
-
-{ #category : #constants }
-SyncSubProcessTest class >> nonZeroExitCode [
-
-	"Exit code used to assert a non-successful process completion."
-
-	^ 42
-]
-
-{ #category : #constants }
-SyncSubProcessTest class >> successExitCode [
-
-	"Exit code asserted on successful process completion."
-
-	^ 0
-]
-
-{ #category : #configuring }
-SyncSubProcessTest >> skipIfRunningOnWindows [
-
-	self isRunningOnWindows ifTrue: [ self skip: 'skipping unix test']
-]
-
-{ #category : #configuring }
-SyncSubProcessTest >> isRunningOnWindows [
-
-	^ OSPlatform current isWindows
-]
-
-{ #category : #running }
-SyncSubProcessTest >> tearDown [
-
-	process ifNotNil: [ process terminate ].
-	super tearDown.
-]
 
 { #category : #tests }
 SyncSubProcessTest >> testRunningANonExistingCommand [
 	
-	process := SPSProcessConfiguration new
-		command: 'non_exisiting_command';
-		arguments: #('foo' 'bar');
-		sync.
+	process := self newProcessConfigurationForNonExistingCommand sync.
 	
 	self
 		should: [ process run ]
