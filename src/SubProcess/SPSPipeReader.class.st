@@ -24,6 +24,12 @@ Class {
 	#category : #SubProcess
 }
 
+{ #category : #'ffi - library' }
+SPSPipeReader >> ffiLibrary [
+
+	^ SPSSpawnLibrary uniqueInstance
+]
+
 { #category : #'instance creation' }
 SPSPipeReader class >> fd: anInteger encoding: anEncoding collector: aCollectorOrNil outputLineBlock: aBlockOrNil [
 
@@ -71,7 +77,7 @@ SPSPipeReader >> fd [
 SPSPipeReader >> close [
 
 	fd ifNotNil: [
-		SPSSpawnLibrary uniqueInstance closeFd: fd.
+		self ffiLibrary closeFd: fd.
 		fd := nil.
 		isEof := true ]
 ]

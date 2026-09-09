@@ -11,6 +11,12 @@ Class {
 	#category : #SubProcess
 }
 
+{ #category : #'ffi - library' }
+SPSPipeWriter >> ffiLibrary [
+
+	^ SPSSpawnLibrary uniqueInstance
+]
+
 { #category : #'instance creation' }
 SPSPipeWriter class >> fd: anInteger [
 
@@ -21,7 +27,7 @@ SPSPipeWriter class >> fd: anInteger [
 SPSPipeWriter >> close [
 
 	fd
-		ifNotNil: [ (SPSSpawnLibrary uniqueInstance closeFd: fd). fd := nil ]]
+		ifNotNil: [ (self ffiLibrary closeFd: fd). fd := nil ]]
 
 { #category : #initialization }
 SPSPipeWriter >> initializeFd: anInteger [
@@ -35,6 +41,6 @@ SPSPipeWriter >> nextPutAll: aString [
 
 	| bytes written |
 	bytes := aString asByteArray.
-	written := SPSSpawnLibrary uniqueInstance write: fd buffer: bytes size: bytes size.
+	written := self ffiLibrary write: fd buffer: bytes size: bytes size.
 	^ written
 ]

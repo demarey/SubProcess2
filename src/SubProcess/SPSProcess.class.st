@@ -101,7 +101,7 @@ SPSProcess >> readToEndFromFd: aFd [
 	 stops the loop. Returns a ByteArray."
 
 	| library chunk output done count |
-	library := SPSSpawnLibrary uniqueInstance.
+	library := self ffiLibrary.
 	chunk := ByteArray new: 65536.
 	output := ByteArray new: 0.
 	done := false.
@@ -145,7 +145,7 @@ SPSProcess >> spawn [
 	argsBlob := self argsBlob.
 	cwd := self configuration workingDirectory ifNotNil: [ :file | file fullName ].
 	errBuf := ByteArray new: 1024.
-	spawnResult := SPSSpawnLibrary uniqueInstance
+	spawnResult := self ffiLibrary
 		spawnStdin: childStdin
 		stdout: childStdout
 		stderr: childStderr
@@ -167,8 +167,8 @@ SPSProcess >> spawn [
 			self closeAllPipeFds: { childStdin. parentStdin. childStdout. childStderr }.
 			self isSpawnSuccess: true.
 			processHandle := SPSProcessHandle value: spawnResult.
-			SPSSpawnLibrary uniqueInstance fdSetNonBlocking: parentStdout.
-			SPSSpawnLibrary uniqueInstance fdSetNonBlocking: parentStderr.
+			self ffiLibrary fdSetNonBlocking: parentStdout.
+			self ffiLibrary fdSetNonBlocking: parentStderr.
 			self stdOut: (self readToEndFromFd: parentStdout).
 			self stdErr: (self readToEndFromFd: parentStderr).
 			self closeAllPipeFds: { parentStdout. parentStderr }.

@@ -24,6 +24,12 @@ Class {
 	#category : #SubProcess
 }
 
+{ #category : #'ffi - library' }
+SPSProcessHandle >> ffiLibrary [
+
+	^ SPSSpawnLibrary uniqueInstance
+]
+
 { #category : #'instance creation' }
 SPSProcessHandle class >> value: anInteger [
 
@@ -77,7 +83,7 @@ SPSProcessHandle >> terminate [
 	 without reaping it; a later wait/reap collects it and closes the underlying
 	 handle."
 
-	SPSSpawnLibrary uniqueInstance killProcess: value
+	self ffiLibrary killProcess: value
 ]
 
 { #category : #'api - lifecycle' }
@@ -106,7 +112,7 @@ SPSProcessHandle >> waitStatusWithBlock: aBlock [
 
 	| result statusBuffer |
 	statusBuffer := ByteArray new: 4.
-	result := SPSSpawnLibrary uniqueInstance
+	result := self ffiLibrary
 		waitProcess: value
 		block: aBlock
 		statusBuffer: statusBuffer.

@@ -212,7 +212,7 @@ SPSAsyncProcess >> pumpReader: aReader fromFd: aFd [
 	| count |
 	aReader ifNil: [ ^ self ].
 	aReader isEof ifTrue: [ ^ self ].
-	count := SPSSpawnLibrary uniqueInstance read: aFd buffer: readBuffer size: readBuffer size.
+	count := self ffiLibrary read: aFd buffer: readBuffer size: readBuffer size.
 	count > 0
 		ifTrue: [ aReader addBytes: (readBuffer first: count) ]
 		ifFalse: [ count = 0 ifTrue: [ aReader announceEof ] ]
@@ -260,7 +260,7 @@ SPSAsyncProcess >> spawnProcess [
 	argsBlob := self argsBlob.
 	cwd := self configuration workingDirectory ifNotNil: [ :file | file fullName ].
 	errBuf := ByteArray new: 1024.
-	spawnResult := SPSSpawnLibrary uniqueInstance
+	spawnResult := self ffiLibrary
 		spawnStdin: childStdin
 		stdout: childStdout
 		stderr: childStderr
@@ -282,8 +282,8 @@ SPSAsyncProcess >> spawnProcess [
 	processHandle := SPSProcessHandle value: spawnResult.
 	stdOutFd := parentStdout.
 	stdErrFd := parentStderr.
-	SPSSpawnLibrary uniqueInstance fdSetNonBlocking: stdOutFd.
-	SPSSpawnLibrary uniqueInstance fdSetNonBlocking: stdErrFd.
+	self ffiLibrary fdSetNonBlocking: stdOutFd.
+	self ffiLibrary fdSetNonBlocking: stdErrFd.
 	readBuffer := ByteArray new: 65536.
 	stdOutPipeReader := SPSPipeReader
 		fd: stdOutFd

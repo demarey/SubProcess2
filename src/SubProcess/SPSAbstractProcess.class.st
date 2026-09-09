@@ -13,6 +13,12 @@ Class {
 	#category : #SubProcess
 }
 
+{ #category : #'ffi - library' }
+SPSAbstractProcess >> ffiLibrary [
+
+	^ SPSSpawnLibrary uniqueInstance
+]
+
 { #category : #'instance creation' }
 SPSAbstractProcess class >> withConfiguration: aSPSProcessConfiguration [
 
@@ -105,7 +111,7 @@ SPSAbstractProcess >> closeAllPipeFds: aCollection [
 SPSAbstractProcess >> closeFd: anInteger [
 
 	anInteger
-		ifNotNil: [ SPSSpawnLibrary uniqueInstance closeFd: anInteger ]
+		ifNotNil: [ self ffiLibrary closeFd: anInteger ]
 ]
 
 { #category : #private }
@@ -120,7 +126,7 @@ SPSAbstractProcess >> newPipeFor: aRole [
 	parentBuffer := ExternalAddress allocate: 8.
 	childBuffer := ExternalAddress allocate: 8.
 	^ [
-		(SPSSpawnLibrary uniqueInstance newPipe: kind parent: parentBuffer child: childBuffer) = 0
+		(self ffiLibrary newPipe: kind parent: parentBuffer child: childBuffer) = 0
 			ifTrue: [
 				parent := parentBuffer unsignedLongLongAt: 1.
 				child := childBuffer unsignedLongLongAt: 1.
