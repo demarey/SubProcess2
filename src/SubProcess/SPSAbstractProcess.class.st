@@ -31,15 +31,6 @@ SPSAbstractProcess class >> spawnErrorBufferSize [
 ]
 
 { #category : #constants }
-SPSAbstractProcess class >> spawnFailureBoundary [
-
-	"spawn answers the process token on success and a value at or below this
-	 boundary on failure (a negated error number)."
-
-	^ 0
-]
-
-{ #category : #constants }
 SPSAbstractProcess class >> outputReadBufferSize [
 
 	"Size in bytes read from a child pipe descriptor in a single read call."
@@ -144,6 +135,15 @@ SPSAbstractProcess >> isSpawnSuccess [
 	
 	"True if the child process was spawned/launched without error."
 	self subclassResponsibility
+]
+
+{ #category : #'private - spawning' }
+SPSAbstractProcess >> isSpawnFailure: aSpawnResult [
+
+	"spawn answers the process token on success and a negated error number on
+	 failure, so any value at or below zero denotes a failed spawn."
+
+	^ aSpawnResult <= 0
 ]
 
 { #category : #'api - running' }

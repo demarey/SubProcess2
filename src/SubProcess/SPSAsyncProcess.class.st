@@ -287,7 +287,7 @@ SPSAsyncProcess >> spawnProcess [
 		error: errBuf
 		errorLength: errBuf size.
 
-	spawnResult <= self class spawnFailureBoundary
+	(self isSpawnFailure: spawnResult)
 		ifTrue: [
 			self closeAllPipeFds: {
 				childStdin. parentStdin. childStdout. parentStdout. childStderr. parentStderr }.

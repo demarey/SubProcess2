@@ -41,9 +41,10 @@ SPSProcessHandle class >> exitCodeShiftBits [
 ]
 
 { #category : #constants }
-SPSProcessHandle class >> exitedResult [
+SPSProcessHandle class >> waitSucceeded [
 
-	"Value sps_wait answers once the child has exited."
+	"Value sps_wait answers when the wait completed and a raw wait status has
+	 been written into the status buffer (vs 0 still running, -1 on error)."
 
 	^ 1
 ]
@@ -173,7 +174,7 @@ SPSProcessHandle >> waitStatusWithBlock: aBlock [
 		waitProcess: value
 		block: aBlock
 		statusBuffer: statusBuffer.
-	result = self class exitedResult ifTrue: [ ^ statusBuffer integerAt: 1 size: self class waitStatusBufferSize signed: true ].
+	result = self class waitSucceeded ifTrue: [ ^ statusBuffer integerAt: 1 size: self class waitStatusBufferSize signed: true ].
 	^ nil
 ]
 
