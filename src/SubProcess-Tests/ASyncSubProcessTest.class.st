@@ -192,8 +192,9 @@ ASyncSubProcessTest >> testOutputWithoutNewlinesLargerThanReadBuffer [
 	self assert: process isComplete.
 	self assert: process isExitSuccess.
 	out := process stdOut.
+	self assert: out size equals: 200001.    "200000 'a' + the collector's trailing cr"
 	self assert: (out occurrencesOf: $a) equals: 200000.
-	self assert: out size >= 200000.
+	self assert: (out occurrencesOf: Character cr) equals: 1.
 	self deny: (out includes: Character lf).
 ]
 
