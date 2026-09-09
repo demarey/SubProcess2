@@ -48,42 +48,6 @@ SPSAbstractProcess class >> outputReadBufferSize [
 	^ 65536
 ]
 
-{ #category : #constants }
-SPSAbstractProcess class >> pipeDescriptorBufferSize [
-
-	"Size in bytes of the buffer holding a descriptor (uintptr_t) returned by
-	 the spawn shim."
-
-	^ 8
-]
-
-{ #category : #constants }
-SPSAbstractProcess class >> pipeStderrKind [
-
-	"Child-end role value for the stderr pipe, matching the native
-	 sps_pipe_kind_t enum."
-
-	^ 2
-]
-
-{ #category : #constants }
-SPSAbstractProcess class >> pipeStdinKind [
-
-	"Child-end role value for the stdin pipe, matching the native
-	 sps_pipe_kind_t enum."
-
-	^ 0
-]
-
-{ #category : #constants }
-SPSAbstractProcess class >> pipeStdoutKind [
-
-	"Child-end role value for the stdout pipe, matching the native
-	 sps_pipe_kind_t enum."
-
-	^ 1
-]
-
 { #category : #'instance creation' }
 SPSAbstractProcess class >> withConfiguration: aSPSProcessConfiguration [
 
@@ -176,28 +140,6 @@ SPSAbstractProcess >> argsBlob [
 ]
 
 { #category : #private }
-SPSAbstractProcess >> newPipeFor: aRole [
-
-	"Create an anonymous pipe whose child end is wired for the given child
-	 stream role (#stdin, #stdout or #stderr) and answer an SPSPipeEnds holding
-	 the parent and child fds, or nil if the pipe cannot be created."
-
-	| kind parentBuffer childBuffer parent child |
-	kind := aRole = #stdin ifTrue: [ self class pipeStdinKind ]
-		ifFalse: [ aRole = #stderr ifTrue: [ self class pipeStderrKind ] ifFalse: [ self class pipeStdoutKind ] ].
-	parentBuffer := ExternalAddress allocate: self class pipeDescriptorBufferSize.
-	childBuffer := ExternalAddress allocate: self class pipeDescriptorBufferSize.
-	^ [
-		(self ffiLibrary newPipe: kind parent: parentBuffer child: childBuffer) = 0
-			ifTrue: [
-				parent := parentBuffer unsignedLongLongAt: 1.
-				child := childBuffer unsignedLongLongAt: 1.
-				SPSPipeEnds parent: parent child: child ]
-			ifFalse: [ nil ] ]
-		ensure: [ parentBuffer free. childBuffer free ]
-]
-
-{ #category : #private }
 SPSAbstractProcess >> cStringBytesFrom: aByteArray [
 
 	"Answer the bytes of a NUL-terminated C string stored in aByteArray, up to
@@ -228,24 +170,6 @@ SPSAbstractProcess >> newOutputReadBuffer [
 	^ ByteArray new: self class outputReadBufferSize
 ]
 
-{ #category : #private }
-SPSAbstractProcess >> createStdioPipes [
-
-	"Create the three stdio pipes as an SPSStdioPipes, or nil if any pipe could
-	 not be created. On failure the already created pipes are closed before
-	 answering nil."
-
-	| stdinPipe stdoutPipe stderrPipe |
-	stdinPipe := self newPipeFor: #stdin.
-	stdoutPipe := self newPipeFor: #stdout.
-	stderrPipe := self newPipeFor: #stderr.
-	(stdinPipe isNil or: [ stdoutPipe isNil or: [ stderrPipe isNil ] ])
-		ifTrue: [
-			(SPSStdioPipes stdin: stdinPipe stdout: stdoutPipe stderr: stderrPipe library: self ffiLibrary) closeAll.
-			^ nil ].
-	^ SPSStdioPipes stdin: stdinPipe stdout: stdoutPipe stderr: stderrPipe library: self ffiLibrary
-]
-
 { #category : #'private - spawning' }
 SPSAbstractProcess >> spawnProcess [
 
@@ -259,7 +183,7 @@ SPSAbstractProcess >> spawnProcess [
 	 them as channels)."
 
 	| pipes argsBlob cwd errBuf spawnResult |
-	pipes := self createStdioPipes.
+	pipes := SPSStdioPipes forSpawnUsing: self ffiLibrary.
 	pipes ifNil: [ ^ self handleSpawnError: 'Cannot create pipes' code: 0 ].
 
 	argsBlob := self argsBlob.
@@ -284,7 +208,7 @@ SPSAbstractProcess >> spawnProcess [
 SPSAbstractProcess >> invokeSpawnWithPipes: pipes args: argsBlob cwd: cwd errBuf: errBuf [
 
 	"Invoke the native spawn shim with the file descriptors of the stdio pipes
-	 answered by #createStdioPipes."
+	 answered by SPSStdioPipes."
 
 	^ self ffiLibrary
 		spawnStdin: pipes stdin child
