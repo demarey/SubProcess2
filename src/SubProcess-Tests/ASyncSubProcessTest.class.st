@@ -75,6 +75,19 @@ ASyncSubProcessTest >> newProcessConfigurationWithShellCommand: anExpression [
 	^ config
 ]
 
+{ #category : #'helpers - building' }
+ASyncSubProcessTest >> newProcessConfigurationWritingBytesWithoutNewlines: anInteger [
+
+	"Answer a configuration emitting anInteger bytes on stdout with no line
+	 feed, using a byte value that survives every platform text-mode pipe
+	 (here 'a', 0x61)."
+
+	self isRunningOnWindows
+		ifTrue: [ ^ self newProcessConfigurationWithShellCommand: ('powershell -Command "Write-Output -NoNewline (''a'' * {1})"' format: { anInteger }) ].
+	^ self newProcessConfigurationWithShellCommand:
+		('head -c {1} /dev/zero | tr ''\\0'' ''a''' format: { anInteger })
+]
+
 { #category : #'helpers - waiting' }
 ASyncSubProcessTest >> waitFor: aBlock within: aDuration [
 
@@ -159,6 +172,28 @@ ASyncSubProcessTest >> testCompletionCallback [
 	self assert: (self waitForCompletionOf: process).
 	self assert: completed.
 	self assert: exit equals: 0.
+]
+
+{ #category : #tests }
+ASyncSubProcessTest >> testOutputWithoutNewlinesLargerThanReadBuffer [
+
+	"Emit more bytes than the pipe read buffer (65536) with no line feed;
+	 the chunked reads must be re-assembled into a single raw buffer."
+
+	| out |
+	process := (self newProcessConfigurationWritingBytesWithoutNewlines: 200000)
+		collectsOutput;
+		async.
+
+	process run.
+
+	self assert: (self waitForCompletionOf: process).
+	self assert: process isComplete.
+	self assert: process isExitSuccess.
+	out := process stdOut.
+	self assert: (out occurrencesOf: $a) equals: 200000.
+	self assert: out size >= 200000.
+	self deny: (out includes: Character lf).
 ]
 
 { #category : #tests }
