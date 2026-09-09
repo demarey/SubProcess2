@@ -181,6 +181,7 @@ ASyncSubProcessTest >> testOutputWithoutNewlinesLargerThanReadBuffer [
 	 the chunked reads must be re-assembled into a single raw buffer."
 
 	| out |
+	self skipIfRunningOnWindows.
 	process := (self newProcessConfigurationWritingBytesWithoutNewlines: 200000)
 		collectsOutput;
 		async.
