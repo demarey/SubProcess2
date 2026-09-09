@@ -319,9 +319,9 @@ SPSAsyncProcess >> signalSpawnError: aByteArrayOrString code: anInteger [
 
 	| domain |
 	domain := 'SubProcess'.
-	(SPSError message: ((aByteArrayOrString isByteArray
-		ifTrue: [ aByteArrayOrString decodeWith: self configuration encoding ]
-		ifFalse: [ aByteArrayOrString ])) code: anInteger domainString: domain) signal
+	(SPSError message: ((aByteArrayOrString isString
+		ifFalse: [ aByteArrayOrString decodeWith: self configuration encoding ]
+		ifTrue: [ aByteArrayOrString ])) code: anInteger domainString: domain) signal
 ]
 
 { #category : #'private - output' }

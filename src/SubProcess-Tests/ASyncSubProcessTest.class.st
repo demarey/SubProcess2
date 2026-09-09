@@ -331,3 +331,27 @@ ASyncSubProcessTest >> testTimeOut [
 	self assert: process isComplete.
 	self assert: process wasTerminated.
 ]
+
+{ #category : #tests }
+ASyncSubProcessTest >> testRunningANonExistingCommand [
+
+	"Spawning a non-existing command raises SPSError synchronously from #run
+	 (the async spawn failure path signals it rather than setting a flag)."
+
+	self skipIfRunningOnWindows.
+	process := SPSProcessConfiguration new
+		command: 'non_exisiting_command';
+		arguments: #('foo' 'bar');
+		async.
+
+	self
+		should: [ process run ]
+		raise: SPSError
+		withExceptionDo: [ :error |
+			self
+				assert: (error messageText includesSubstring: 'No such file or directory')
+				description: 'Expecting "No such file ..." but got ', error messageText ].
+
+	self deny: process isSpawnSuccess.
+	self assert: process exitCode isNil.
+]
