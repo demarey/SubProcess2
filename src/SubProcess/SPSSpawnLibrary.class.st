@@ -61,9 +61,9 @@ SPSSpawnLibrary >> fdSetNonBlocking: aFd [
 ]
 
 { #category : #ffi }
-SPSSpawnLibrary >> killProcess: aProcessHandle [
+SPSSpawnLibrary >> killProcess: aProcessToken [
 
-	^ self ffiCall: #(int sps_kill(longlong aProcessHandle))
+	^ self ffiCall: #(int sps_kill(longlong aProcessToken))
 ]
 
 { #category : #ffi }
@@ -90,14 +90,14 @@ SPSSpawnLibrary >> spawnStdin: aStdinFd stdout: aStdoutFd stderr: aStderrFd args
 ]
 
 { #category : #ffi }
-SPSSpawnLibrary >> waitProcess: aProcessHandle block: aBlock statusBuffer: aStatusBuffer [
+SPSSpawnLibrary >> waitProcess: aProcessToken block: aBlock statusBuffer: aStatusBuffer [
 
-	"Wait for the child identified by aProcessHandle. Answers 1 once it has exited
+	"Wait for the child identified by aProcessToken. Answers 1 once it has exited
 	 (writing a wait status into the 4-byte aStatusBuffer), 0 while it is still
 	 running in poll mode (aBlock false), and -1 on error. aBlock true blocks
 	 until exit."
 
-	^ self ffiCall: #(int sps_wait(longlong aProcessHandle, int aBlock, int* aStatusBuffer))
+	^ self ffiCall: #(int sps_wait(longlong aProcessToken, int aBlock, int* aStatusBuffer))
 ]
 
 { #category : #ffi }
