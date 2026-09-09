@@ -176,19 +176,6 @@ SPSAbstractProcess >> argsBlob [
 ]
 
 { #category : #private }
-SPSAbstractProcess >> closeAllPipeFds: aCollection [
-
-	aCollection do: [ :fd | self closeFd: fd ]
-]
-
-{ #category : #private }
-SPSAbstractProcess >> closeFd: anInteger [
-
-	anInteger
-		ifNotNil: [ self ffiLibrary closeFd: anInteger ]
-]
-
-{ #category : #private }
 SPSAbstractProcess >> newPipeFor: aRole [
 
 	"Create an anonymous pipe whose child end is wired for the given child
@@ -208,13 +195,6 @@ SPSAbstractProcess >> newPipeFor: aRole [
 				SPSPipeEnds parent: parent child: child ]
 			ifFalse: [ nil ] ]
 		ensure: [ parentBuffer free. childBuffer free ]
-]
-
-{ #category : #private }
-SPSAbstractProcess >> closePipeEnds: aCollectionOfPipeEnds [
-
-	aCollectionOfPipeEnds do: [ :pipeEnds |
-		pipeEnds ifNotNil: [ self closeFd: pipeEnds parent. self closeFd: pipeEnds child ] ]
 ]
 
 { #category : #private }
@@ -251,17 +231,19 @@ SPSAbstractProcess >> newOutputReadBuffer [
 { #category : #private }
 SPSAbstractProcess >> createStdioPipes [
 
-	"Create the three stdio pipes, answering them in {stdin. stdout. stderr}
-	 order or nil if any pipe could not be created. On failure the already
-	 created pipes are closed before answering nil."
+	"Create the three stdio pipes as an SPSStdioPipes, or nil if any pipe could
+	 not be created. On failure the already created pipes are closed before
+	 answering nil."
 
 	| stdinPipe stdoutPipe stderrPipe |
 	stdinPipe := self newPipeFor: #stdin.
 	stdoutPipe := self newPipeFor: #stdout.
 	stderrPipe := self newPipeFor: #stderr.
 	(stdinPipe isNil or: [ stdoutPipe isNil or: [ stderrPipe isNil ] ])
-		ifTrue: [ self closePipeEnds: { stdinPipe. stdoutPipe. stderrPipe }. ^ nil ].
-	^ { stdinPipe. stdoutPipe. stderrPipe }
+		ifTrue: [
+			(SPSStdioPipes stdin: stdinPipe stdout: stdoutPipe stderr: stderrPipe library: self ffiLibrary) closeAll.
+			^ nil ].
+	^ SPSStdioPipes stdin: stdinPipe stdout: stdoutPipe stderr: stderrPipe library: self ffiLibrary
 ]
 
 { #category : #'private - spawning' }
@@ -271,9 +253,10 @@ SPSAbstractProcess >> spawnProcess [
 	 three stdio pipes, invokes the native spawn shim and dispatches to the
 	 subclass hooks on failure or success.
 
-	 Ownership: this method always closes the child ends and the parent stdin
-	 end. parentStdout and parentStderr are handed open to the hook, which owns
-	 closing them (sync reads then closes, async keeps them as channels)."
+	 Ownership: SPSStdioPipes closes the child ends and the parent stdin end,
+	 and all ends on failure. parentStdout and parentStderr are handed open to
+	 the hook, which owns closing them (sync reads then closes, async keeps
+	 them as channels)."
 
 	| pipes argsBlob cwd errBuf spawnResult |
 	pipes := self createStdioPipes.
@@ -290,41 +273,28 @@ SPSAbstractProcess >> spawnProcess [
 
 	(self isSpawnFailure: spawnResult)
 		ifTrue: [
-			self closePipeEnds: pipes.
+			pipes closeAll.
 			^ self handleSpawnError: (self cStringBytesFrom: errBuf) code: (0 - spawnResult) ].
 
-	self closeChildPipeEnds: pipes.
-	^ self handleSpawnSuccess: spawnResult parentStdout: (pipes second parent) parentStderr: (pipes third parent)
+	pipes closeAfterSuccessfulSpawn.
+	^ self handleSpawnSuccess: spawnResult parentStdout: pipes stdout parent parentStderr: pipes stderr parent
 ]
 
 { #category : #'private - spawning' }
 SPSAbstractProcess >> invokeSpawnWithPipes: pipes args: argsBlob cwd: cwd errBuf: errBuf [
 
 	"Invoke the native spawn shim with the file descriptors of the stdio pipes
-	 answered by #createStdioPipes, in {stdin. stdout. stderr} order."
+	 answered by #createStdioPipes."
 
 	^ self ffiLibrary
-		spawnStdin: (pipes first child)
-		stdout: (pipes second child)
-		stderr: (pipes third child)
+		spawnStdin: pipes stdin child
+		stdout: pipes stdout child
+		stderr: pipes stderr child
 		args: argsBlob
 		argsLength: argsBlob byteSize
 		cwd: cwd
 		error: errBuf
 		errorLength: errBuf size
-]
-
-{ #category : #'private - spawning' }
-SPSAbstractProcess >> closeChildPipeEnds: pipes [
-
-	"Close the child ends of stdout and stderr and both ends of stdin; the
-	 parent ends of stdout and stderr are left open for the success hook (see
-	 #spawnProcess)."
-
-	self closeFd: (pipes first parent).
-	self closeFd: (pipes first child).
-	self closeFd: (pipes second child).
-	self closeFd: (pipes third child).
 ]
 
 { #category : #'private - spawning' }

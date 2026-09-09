@@ -119,7 +119,8 @@ SPSProcess >> handleSpawnSuccess: aProcessToken parentStdout: parentStdout paren
 	self ffiLibrary fdSetNonBlocking: parentStderr.
 	self stdOut: (self readToEndFromFd: parentStdout).
 	self stdErr: (self readToEndFromFd: parentStderr).
-	self closeAllPipeFds: { parentStdout. parentStderr }.
+	parentStdout ifNotNil: [ self ffiLibrary closeFd: parentStdout ].
+	parentStderr ifNotNil: [ self ffiLibrary closeFd: parentStderr ].
 	processHandle waitForExit
 ]
 
