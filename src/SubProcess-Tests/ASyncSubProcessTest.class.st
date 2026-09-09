@@ -89,7 +89,7 @@ ASyncSubProcessTest >> newProcessConfigurationForLongRunningProcess [
 	"Answer a configuration for a process that stays alive for a long time."
 
 	self isRunningOnWindows
-		ifTrue: [ ^ self newProcessConfigurationWithShellCommand: ('powershell -Command "Start-Sleep -Seconds {1}"' format: { self class longRunningDuration asSeconds }) ].
+		ifTrue: [ ^ self newProcessConfigurationWithShellCommand: ('ping -n {1} 127.0.0.1 > nul' format: { self class longRunningDuration asSeconds + 1 }) ].
 	^ SPSProcessConfiguration new
 		command: '/bin/sleep';
 		arguments: { self class longRunningDuration asSeconds asString };
