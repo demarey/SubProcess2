@@ -13,6 +13,76 @@ Class {
 	#category : #SubProcess
 }
 
+{ #category : #constants }
+SPSAbstractProcess class >> nullByte [
+
+	"The byte value terminating a C string."
+
+	^ Character null asciiValue
+]
+
+{ #category : #constants }
+SPSAbstractProcess class >> spawnErrorBufferSize [
+
+	"Size in bytes of the buffer receiving a NUL-terminated error message when
+	 a child fails to spawn."
+
+	^ 1024
+]
+
+{ #category : #constants }
+SPSAbstractProcess class >> spawnFailureBoundary [
+
+	"spawn answers the process token on success and a value at or below this
+	 boundary on failure (a negated error number)."
+
+	^ 0
+]
+
+{ #category : #constants }
+SPSAbstractProcess class >> outputReadBufferSize [
+
+	"Size in bytes read from a child pipe descriptor in a single read call."
+
+	^ 65536
+]
+
+{ #category : #constants }
+SPSAbstractProcess class >> pipeDescriptorBufferSize [
+
+	"Size in bytes of the buffer holding a descriptor (uintptr_t) returned by
+	 the spawn shim."
+
+	^ 8
+]
+
+{ #category : #constants }
+SPSAbstractProcess class >> pipeStderrKind [
+
+	"Child-end role value for the stderr pipe, matching the native
+	 sps_pipe_kind_t enum."
+
+	^ 2
+]
+
+{ #category : #constants }
+SPSAbstractProcess class >> pipeStdinKind [
+
+	"Child-end role value for the stdin pipe, matching the native
+	 sps_pipe_kind_t enum."
+
+	^ 0
+]
+
+{ #category : #constants }
+SPSAbstractProcess class >> pipeStdoutKind [
+
+	"Child-end role value for the stdout pipe, matching the native
+	 sps_pipe_kind_t enum."
+
+	^ 1
+]
+
 { #category : #'ffi - library' }
 SPSAbstractProcess >> ffiLibrary [
 
@@ -122,9 +192,10 @@ SPSAbstractProcess >> newPipeFor: aRole [
 	 { parentFd. childFd }, or nil if the pipe cannot be created."
 
 	| kind parentBuffer childBuffer parent child |
-	kind := aRole = #stdin ifTrue: [ 0 ] ifFalse: [ 1 ].
-	parentBuffer := ExternalAddress allocate: 8.
-	childBuffer := ExternalAddress allocate: 8.
+	kind := aRole = #stdin ifTrue: [ self class pipeStdinKind ]
+		ifFalse: [ aRole = #stderr ifTrue: [ self class pipeStderrKind ] ifFalse: [ self class pipeStdoutKind ] ].
+	parentBuffer := ExternalAddress allocate: self class pipeDescriptorBufferSize.
+	childBuffer := ExternalAddress allocate: self class pipeDescriptorBufferSize.
 	^ [
 		(self ffiLibrary newPipe: kind parent: parentBuffer child: childBuffer) = 0
 			ifTrue: [
@@ -142,7 +213,7 @@ SPSAbstractProcess >> cStringBytesFrom: aByteArray [
 	 but excluding the first NUL."
 
 	| index |
-	index := aByteArray indexOf: 0.
+	index := aByteArray indexOf: self class nullByte.
 	index = 0 ifTrue: [ ^ #() ].
 	^ aByteArray first: index - 1
 ]

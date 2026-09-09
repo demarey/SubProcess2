@@ -24,6 +24,22 @@ Class {
 	#category : #SubProcess
 }
 
+{ #category : #constants }
+SPSPipeReader class >> lineFeedByte [
+
+	"The byte value separating lines within the raw stream (LF)."
+
+	^ Character lf asciiValue
+]
+
+{ #category : #constants }
+SPSPipeReader class >> nextLinePollDelay [
+
+	"Delay while yielding in #nextLine when no line is buffered yet."
+
+	^ 2 milliSeconds
+]
+
 { #category : #'ffi - library' }
 SPSPipeReader >> ffiLibrary [
 
@@ -61,7 +77,7 @@ SPSPipeReader >> announceEof [
 SPSPipeReader >> extractPendingLines [
 
 	| index lineBytes |
-	[ (index := rawTail indexOf: 10) > 0 ] whileTrue: [
+	[ (index := rawTail indexOf: self class lineFeedByte) > 0 ] whileTrue: [
 		lineBytes := rawTail copyFrom: 1 to: index - 1.
 		rawTail := rawTail copyFrom: index + 1 to: rawTail size.
 		self handleLine: lineBytes ]
@@ -120,7 +136,7 @@ SPSPipeReader >> nextLine [
 
 	[self isEof and: [ pendingLines isEmpty ]] whileFalse: [
 		pendingLines ifNotEmpty: [ ^ pendingLines removeFirst ].
-		(2 milliSeconds) asDelay wait ].
+		(self class nextLinePollDelay) asDelay wait ].
 	^ nil
 ]
 

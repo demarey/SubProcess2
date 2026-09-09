@@ -38,6 +38,23 @@ Class {
 	#category : #SubProcess
 }
 
+{ #category : #constants }
+SPSAsyncProcess class >> completionPollDelay [
+
+	"Delay between pumping output while waiting in the completion watcher."
+
+	^ 3 milliSeconds
+]
+
+{ #category : #constants }
+SPSAsyncProcess class >> drainPollDelay [
+
+	"Delay between pumping output while draining the pipes to EOF on
+	 completion."
+
+	^ 1 milliSecond
+]
+
 { #category : #'private - lifecycle' }
 SPSAsyncProcess >> announceCompleted [
 
@@ -64,7 +81,7 @@ SPSAsyncProcess >> drainOutputToEof [
 
 	[ self bothChannelsAtEof ] whileFalse: [
 		self pumpOutput.
-		(1 milliSecond) asDelay wait ]
+		(self class drainPollDelay) asDelay wait ]
 ]
 
 { #category : #'api - accessing' }
@@ -231,7 +248,7 @@ SPSAsyncProcess >> watchCompletion [
 	watchWorker := [
 		[ stopRequested or: [ processHandle pollForExit ] ] whileFalse: [
 			self pumpOutput.
-			(3 milliSeconds) asDelay wait ].
+			(self class completionPollDelay) asDelay wait ].
 		stopRequested ifFalse: [ self completeWithExitCode: processHandle exitCode ] ]
 		forkAt: Processor userBackgroundPriority
 		named: 'SubProcess-completion-watch'
@@ -259,7 +276,7 @@ SPSAsyncProcess >> spawnProcess [
 
 	argsBlob := self argsBlob.
 	cwd := self configuration workingDirectory ifNotNil: [ :file | file fullName ].
-	errBuf := ByteArray new: 1024.
+	errBuf := ByteArray new: self class spawnErrorBufferSize.
 	spawnResult := self ffiLibrary
 		spawnStdin: childStdin
 		stdout: childStdout
@@ -270,7 +287,7 @@ SPSAsyncProcess >> spawnProcess [
 		error: errBuf
 		errorLength: errBuf size.
 
-	spawnResult <= 0
+	spawnResult <= self class spawnFailureBoundary
 		ifTrue: [
 			self closeAllPipeFds: {
 				childStdin. parentStdin. childStdout. parentStdout. childStderr. parentStderr }.
@@ -284,7 +301,7 @@ SPSAsyncProcess >> spawnProcess [
 	stdErrFd := parentStderr.
 	self ffiLibrary fdSetNonBlocking: stdOutFd.
 	self ffiLibrary fdSetNonBlocking: stdErrFd.
-	readBuffer := ByteArray new: 65536.
+	readBuffer := ByteArray new: self class outputReadBufferSize.
 	stdOutPipeReader := SPSPipeReader
 		fd: stdOutFd
 		encoding: self configuration encoding

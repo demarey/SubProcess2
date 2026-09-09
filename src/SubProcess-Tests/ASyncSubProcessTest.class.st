@@ -7,6 +7,88 @@ Class {
 	#category : #'SubProcess-Tests'
 }
 
+{ #category : #constants }
+ASyncSubProcessTest class >> completionTimeout [
+
+	"Timeout within which a long-running process is expected to still be
+	 running, used by the timeout test."
+
+	^ 1 second
+]
+
+{ #category : #constants }
+ASyncSubProcessTest class >> completionWaitTime [
+
+	"Timeout within which a spawned process must reach completion."
+
+	^ 10 seconds
+]
+
+{ #category : #constants }
+ASyncSubProcessTest class >> largeOutputLineCount [
+
+	"Number of lines emitted by the large-output test."
+
+	^ 50000
+]
+
+{ #category : #constants }
+ASyncSubProcessTest class >> longRunningDuration [
+
+	"Duration in seconds a spawned long-running process stays alive before
+	 being terminated."
+
+	^ 30 seconds
+]
+
+{ #category : #constants }
+ASyncSubProcessTest class >> noNewlinePayloadBytes [
+
+	"Number of bytes emitted (without line feed) by the no-newline test."
+
+	^ 200000
+]
+
+{ #category : #constants }
+ASyncSubProcessTest class >> nonZeroExitCode [
+
+	"Exit code used to assert a non-successful process completion."
+
+	^ 42
+]
+
+{ #category : #constants }
+ASyncSubProcessTest class >> streamingLineCount [
+
+	"Number of lines emitted by the streaming-output test."
+
+	^ 10
+]
+
+{ #category : #constants }
+ASyncSubProcessTest class >> streamingWaitTime [
+
+	"Delay allowed for the streaming-output callback lines to arrive."
+
+	^ 5 seconds
+]
+
+{ #category : #constants }
+ASyncSubProcessTest class >> successExitCode [
+
+	"Exit code asserted on successful process completion."
+
+	^ 0
+]
+
+{ #category : #constants }
+ASyncSubProcessTest class >> waitForPollDelay [
+
+	"Delay between polls while #waitFor: polls its predicate."
+
+	^ 20 milliSeconds
+]
+
 { #category : #testing }
 ASyncSubProcessTest >> skipIfRunningOnWindows [
 
@@ -45,10 +127,10 @@ ASyncSubProcessTest >> newProcessConfigurationForLongRunningProcess [
 	"Answer a configuration for a process that stays alive for a long time."
 
 	self isRunningOnWindows
-		ifTrue: [ ^ self newProcessConfigurationWithShellCommand: 'powershell -Command "Start-Sleep -Seconds 30"' ].
+		ifTrue: [ ^ self newProcessConfigurationWithShellCommand: ('powershell -Command "Start-Sleep -Seconds {1}"' format: { self class longRunningDuration asSeconds }) ].
 	^ SPSProcessConfiguration new
 		command: '/bin/sleep';
-		arguments: { '30' };
+		arguments: { self class longRunningDuration asSeconds asString };
 		yourself
 ]
 
@@ -97,14 +179,14 @@ ASyncSubProcessTest >> waitFor: aBlock within: aDuration [
 	| deadline |
 	deadline := DateAndTime now + aDuration.
 	[ aBlock value or: [ DateAndTime now > deadline ] ]
-		whileFalse: [ (20 milliSeconds) asDelay wait ].
+		whileFalse: [ (self class waitForPollDelay) asDelay wait ].
 	^ aBlock value
 ]
 
 { #category : #'helpers - waiting' }
 ASyncSubProcessTest >> waitForCompletionOf: anAsyncProcess [
 
-	^ self waitFor: [ anAsyncProcess isComplete ] within: 10 seconds
+	^ self waitFor: [ anAsyncProcess isComplete ] within: self class completionWaitTime
 ]
 
 { #category : #tests }
@@ -129,7 +211,7 @@ ASyncSubProcessTest >> testAutoCollectedLargeOutput [
 	| out |
 
 	self skipIfRunningOnWindows.
-	process := (self newProcessConfigurationWithShellCommand: 'seq 1 50000')
+	process := (self newProcessConfigurationWithShellCommand: ('seq 1 {1}' format: { self class largeOutputLineCount }))
 		collectsOutput;
 		async.
 
@@ -139,20 +221,20 @@ ASyncSubProcessTest >> testAutoCollectedLargeOutput [
 	self assert: process isComplete.
 	self assert: process isExitSuccess.
 	out := process stdOut.
-	self assert: (out occurrencesOf: Character cr) >= 50000.
-	self assert: (out includesSubstring: '50000').
+	self assert: (out occurrencesOf: Character cr) >= self class largeOutputLineCount.
+	self assert: (out includesSubstring: self class largeOutputLineCount asString).
 ]
 
 { #category : #tests }
 ASyncSubProcessTest >> testCompletion [
 	
-	process := (self newProcessConfigurationWithShellCommand: 'exit 42') async.
+	process := (self newProcessConfigurationWithShellCommand: ('exit {1}' format: { self class nonZeroExitCode })) async.
 	
 	process run.
 	
 	self assert: (self waitForCompletionOf: process).
 	self assert: process isComplete.
-	self assert: process exitCode equals: 42.
+	self assert: process exitCode equals: self class nonZeroExitCode.
 	self deny: process isExitSuccess.
 ]
 
@@ -162,7 +244,7 @@ ASyncSubProcessTest >> testCompletionCallback [
 	
 	completed := false.
 	exit := nil.
-	process := (self newProcessConfigurationWithShellCommand: 'exit 0') async.
+	process := (self newProcessConfigurationWithShellCommand: ('exit {1}' format: { self class successExitCode })) async.
 	process whenCompletedDo: [ :aProcess |
 		completed := true.
 		exit := aProcess exitCode ].
@@ -171,18 +253,19 @@ ASyncSubProcessTest >> testCompletionCallback [
 	
 	self assert: (self waitForCompletionOf: process).
 	self assert: completed.
-	self assert: exit equals: 0.
+	self assert: exit equals: self class successExitCode.
 ]
 
 { #category : #tests }
 ASyncSubProcessTest >> testOutputWithoutNewlinesLargerThanReadBuffer [
 
-	"Emit more bytes than the pipe read buffer (65536) with no line feed;
-	 the chunked reads must be re-assembled into a single raw buffer."
+	"Emit more bytes than the pipe read buffer with no line feed; the chunked
+	 reads must be re-assembled into a single raw buffer."
 
-	| out |
+	| out payloadBytes |
+	payloadBytes := self class noNewlinePayloadBytes.
 	self skipIfRunningOnWindows.
-	process := (self newProcessConfigurationWritingBytesWithoutNewlines: 200000)
+	process := (self newProcessConfigurationWritingBytesWithoutNewlines: payloadBytes)
 		collectsOutput;
 		async.
 
@@ -192,8 +275,8 @@ ASyncSubProcessTest >> testOutputWithoutNewlinesLargerThanReadBuffer [
 	self assert: process isComplete.
 	self assert: process isExitSuccess.
 	out := process stdOut.
-	self assert: out size equals: 200001.    "200000 'a' + the collector's trailing cr"
-	self assert: (out occurrencesOf: $a) equals: 200000.
+	self assert: out size equals: payloadBytes + 1.    "payload 'a's + the collector's trailing cr"
+	self assert: (out occurrencesOf: $a) equals: payloadBytes.
 	self assert: (out occurrencesOf: Character cr) equals: 1.
 	self deny: (out includes: Character lf).
 ]
@@ -216,14 +299,14 @@ ASyncSubProcessTest >> testStreamingOutputCallback [
 	| lines |
 
 	lines := OrderedCollection new.
-	process := (self newProcessConfigurationProducingLines: 10) async.
+	process := (self newProcessConfigurationProducingLines: self class streamingLineCount) async.
 	process outputLineDo: [ :aLine | lines add: aLine ].
 
 	process run.
 
 	self assert: (self waitForCompletionOf: process).
-	self assert: (self waitFor: [ lines size >= 10 ] within: 5 seconds).
-	self assert: (lines includes: '10').
+	self assert: (self waitFor: [ lines size >= self class streamingLineCount ] within: self class streamingWaitTime).
+	self assert: (lines includes: self class streamingLineCount asString).
 ]
 
 { #category : #tests }
@@ -244,7 +327,7 @@ ASyncSubProcessTest >> testTimeOut [
 
 	process := self newProcessConfigurationForLongRunningProcess async.
 	
-	self assert: (process runAndWaitTimeOut: 1 second).
+	self assert: (process runAndWaitTimeOut: self class completionTimeout).
 	self assert: process isComplete.
 	self assert: process wasTerminated.
 ]

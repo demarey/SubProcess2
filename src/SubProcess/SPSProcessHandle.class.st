@@ -24,6 +24,63 @@ Class {
 	#category : #SubProcess
 }
 
+{ #category : #constants }
+SPSProcessHandle class >> exitCodeLowerMask [
+
+	"Bits holding the exit code within a wait status (WEXITSTATUS)."
+
+	^ 16rFF
+]
+
+{ #category : #constants }
+SPSProcessHandle class >> exitCodeShiftBits [
+
+	"Shift from a wait status to its exit-code bits (WEXITSTATUS)."
+
+	^ 8
+]
+
+{ #category : #constants }
+SPSProcessHandle class >> exitedResult [
+
+	"Value sps_wait answers once the child has exited."
+
+	^ 1
+]
+
+{ #category : #constants }
+SPSProcessHandle class >> signalTerminationMask [
+
+	"Low 7 bits of a wait status: nonzero when the child was terminated by a
+	 signal (WIFEXITED test)."
+
+	^ 16r7F
+]
+
+{ #category : #constants }
+SPSProcessHandle class >> waitBlockMode [
+
+	"Blocking mode for sps_wait (blocks until the child exits)."
+
+	^ 1
+]
+
+{ #category : #constants }
+SPSProcessHandle class >> waitPollMode [
+
+	"Poll mode for sps_wait (answers immediately, 0 while the child runs)."
+
+	^ 0
+]
+
+{ #category : #constants }
+SPSProcessHandle class >> waitStatusBufferSize [
+
+	"Size in bytes of the buffer receiving a wait status (a native int)."
+
+	^ 4
+]
+
 { #category : #'ffi - library' }
 SPSProcessHandle >> ffiLibrary [
 
@@ -70,7 +127,7 @@ SPSProcessHandle >> pollForExit [
 
 	| status |
 	isReaped ifTrue: [ ^ true ].
-	status := self waitStatusWithBlock: 0.
+	status := self waitStatusWithBlock: self class waitPollMode.
 	status isNil ifTrue: [ ^ false ].
 	self reapedWithStatus: status.
 	^ true
@@ -93,7 +150,7 @@ SPSProcessHandle >> waitForExit [
 	 Answers the already-cached exit code if the child was reaped earlier."
 
 	isReaped ifTrue: [ ^ exitCode ].
-	self reapedWithStatus: (self waitStatusWithBlock: 1).
+	self reapedWithStatus: (self waitStatusWithBlock: self class waitBlockMode).
 	^ exitCode
 ]
 
@@ -111,12 +168,12 @@ SPSProcessHandle >> waitStatusWithBlock: aBlock [
 	 is still running (poll mode) or on error."
 
 	| result statusBuffer |
-	statusBuffer := ByteArray new: 4.
+	statusBuffer := ByteArray new: self class waitStatusBufferSize.
 	result := self ffiLibrary
 		waitProcess: value
 		block: aBlock
 		statusBuffer: statusBuffer.
-	result = 1 ifTrue: [ ^ statusBuffer integerAt: 1 size: 4 signed: true ].
+	result = self class exitedResult ifTrue: [ ^ statusBuffer integerAt: 1 size: self class waitStatusBufferSize signed: true ].
 	^ nil
 ]
 
@@ -128,6 +185,7 @@ SPSProcessHandle >> decodeExitCodeFromWaitStatus: anInteger [
 	 other termination (e.g. killed by a signal) has no simple exit code, so
 	 we answer nil (matching GLib's behaviour of reporting no exit code)."
 
-	(anInteger bitAnd: 16r7F) = 0 ifTrue: [ ^ (anInteger bitShift: -8) bitAnd: 16rFF ].
+	(anInteger bitAnd: self class signalTerminationMask) = 0
+		ifTrue: [ ^ (anInteger bitShift: self class exitCodeShiftBits negated) bitAnd: self class exitCodeLowerMask ].
 	^ nil
 ]

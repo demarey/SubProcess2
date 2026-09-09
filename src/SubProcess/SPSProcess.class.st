@@ -17,6 +17,14 @@ Class {
 	#category : #SubProcess
 }
 
+{ #category : #constants }
+SPSProcess class >> readPollDelay [
+
+	"Delay while yielding between non-blocking reads of a child pipe."
+
+	^ 2 milliSeconds
+]
+
 { #category : #'api - accessing' }
 SPSProcess >> error [
 
@@ -102,7 +110,7 @@ SPSProcess >> readToEndFromFd: aFd [
 
 	| library chunk output done count |
 	library := self ffiLibrary.
-	chunk := ByteArray new: 65536.
+	chunk := ByteArray new: self class outputReadBufferSize.
 	output := ByteArray new: 0.
 	done := false.
 
@@ -113,7 +121,7 @@ SPSProcess >> readToEndFromFd: aFd [
 			ifFalse: [
 				count = 0
 					ifTrue: [ done := true ]
-					ifFalse: [ (2 milliSeconds) asDelay wait ] ] ].
+					ifFalse: [ (self class readPollDelay) asDelay wait ] ] ].
 	^ output
 ]
 
@@ -144,7 +152,7 @@ SPSProcess >> spawn [
 
 	argsBlob := self argsBlob.
 	cwd := self configuration workingDirectory ifNotNil: [ :file | file fullName ].
-	errBuf := ByteArray new: 1024.
+	errBuf := ByteArray new: self class spawnErrorBufferSize.
 	spawnResult := self ffiLibrary
 		spawnStdin: childStdin
 		stdout: childStdout
@@ -154,7 +162,7 @@ SPSProcess >> spawn [
 		cwd: cwd
 		error: errBuf
 		errorLength: errBuf size.
-	spawnResult <= 0
+	spawnResult <= self class spawnFailureBoundary
 		ifTrue: [
 			self closeAllPipeFds: {
 				childStdin. parentStdin. childStdout. parentStdout. childStderr. parentStderr }.

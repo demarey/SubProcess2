@@ -7,6 +7,22 @@ Class {
 	#category : #'SubProcess-Tests'
 }
 
+{ #category : #constants }
+SyncSubProcessTest class >> nonZeroExitCode [
+
+	"Exit code used to assert a non-successful process completion."
+
+	^ 42
+]
+
+{ #category : #constants }
+SyncSubProcessTest class >> successExitCode [
+
+	"Exit code asserted on successful process completion."
+
+	^ 0
+]
+
 { #category : #configuring }
 SyncSubProcessTest >> skipIfRunningOnWindows [
 
@@ -74,14 +90,14 @@ SyncSubProcessTest >> testRunningCommandWithNonZeroExitCode [
 	self skipIfRunningOnWindows.
 	process := SPSProcessConfiguration new
 		command: '/bin/sh';
-		arguments: #('-c' 'exit 42');
+		arguments: { '-c'. ('exit {1}' format: { self class nonZeroExitCode }) };
 		sync.
 	
 	process run.
 	
 	self assert: process isComplete.
 	self assert: process isSpawnSuccess.
-	self assert: process exitCode equals: 42.
+	self assert: process exitCode equals: self class nonZeroExitCode.
 	self deny: process isExitSuccess.
 ]
 
@@ -91,14 +107,14 @@ SyncSubProcessTest >> testRunningCommandWithNonZeroExitCodeOnWindows [
 	self isRunningOnWindows ifFalse: [ self skip: 'skipping windows test'].
 	process := SPSProcessConfiguration new
 		windowsShellCommand;
-		addArgument: 'exit 42';
+		addArgument: ('exit {1}' format: { self class nonZeroExitCode });
 		sync.
 	
 	process run.
 	
 	self assert: process isComplete.
 	self assert: process isSpawnSuccess.
-	self assert: process exitCode equals: 42.
+	self assert: process exitCode equals: self class nonZeroExitCode.
 	self deny: process isExitSuccess.
 ]
 
@@ -143,7 +159,7 @@ SyncSubProcessTest >> testRunningCommandInGivenWorkingDirectory [
 	self assert: process isComplete.
 	self assert: process isSpawnSuccess.
 	self assert: process isExitSuccess.
-	self assert: process exitCode equals: 0.
+	self assert: process exitCode equals: self class successExitCode.
 	self assert: process stdErr isEmpty.
 	self assert: (process stdOut includesSubstring: 'ombu-sessions').
 
