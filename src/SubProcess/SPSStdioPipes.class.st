@@ -92,13 +92,22 @@ SPSStdioPipes class >> newPipeUsing: anFfiLibrary kind: anInteger [
 	 SPSPipeEnds holding the parent and child fds, or nil if the pipe cannot be
 	 created."
 
-	| parentBuffer childBuffer |
-	parentBuffer := self newDescriptorBuffer.
-	childBuffer := self newDescriptorBuffer.
-	^ [
+	^ self withPipeBuffers: [ :parentBuffer :childBuffer |
 		(anFfiLibrary newPipe: anInteger parent: parentBuffer child: childBuffer) = 0
 			ifTrue: [ self pipeEndsFromParentBuffer: parentBuffer childBuffer: childBuffer ]
 			ifFalse: [ nil ] ]
+]
+
+{ #category : #'private - creation' }
+SPSStdioPipes class >> withPipeBuffers: aBlock [
+
+	"Run aBlock with two allocated descriptor buffers (parent and child),
+	 freeing them afterwards regardless of the answer."
+
+	| parentBuffer childBuffer |
+	parentBuffer := self newDescriptorBuffer.
+	childBuffer := self newDescriptorBuffer.
+	^ [ aBlock value: parentBuffer value: childBuffer ]
 		ensure: [ parentBuffer free. childBuffer free ]
 ]
 
