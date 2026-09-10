@@ -184,14 +184,35 @@ sps_pipe (int kind, sps_fd_t *out_parent, sps_fd_t *out_child)
   return 0;
 }
 
-intptr_t
-sps_spawn (sps_fd_t child_stdin, sps_fd_t child_stdout, sps_fd_t child_stderr,
-           const char *args, size_t args_len, const char *cwd,
-           char *errbuf, size_t errbuf_len)
+/* Resolve a HANDLE for a stream wired with SILENCE / PIPE / MERGE: SILENCE
+ * opens NUL, MERGE reuses the already-resolved stdout handle, PIPE uses the
+ * given pipe end, INHERIT uses the caller's real standard handle so the child
+ * sees the parent's descriptor even under STARTF_USESTDHANDLES. */
+static HANDLE
+sps_resolve_stdio (sps_stdio_mode_t mode, sps_fd_t pipe_fd,
+                   DWORD std_kind, HANDLE merged_stdout)
 {
-  HANDLE stdin_handle = (HANDLE) child_stdin;
-  HANDLE stdout_handle = (HANDLE) child_stdout;
-  HANDLE stderr_handle = (HANDLE) child_stderr;
+  switch (mode)
+    {
+    case SPS_STDIO_INHERIT:
+      return GetStdHandle (std_kind);
+    case SPS_STDIO_SILENCE:
+      return CreateFileW (L"NUL", GENERIC_READ | GENERIC_WRITE,
+                          FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING,
+                          FILE_ATTRIBUTE_NORMAL, NULL);
+    case SPS_STDIO_MERGE:
+      return merged_stdout;
+    case SPS_STDIO_PIPE:
+    default:
+      return (HANDLE) pipe_fd;
+    }
+}
+
+intptr_t
+sps_spawn (const sps_stdio_spec_t *stdio, const char *args, size_t args_len,
+           const char *cwd, char *errbuf, size_t errbuf_len)
+{
+  HANDLE stdin_handle, stdout_handle, stderr_handle;
   PROCESS_INFORMATION proc_info;
   STARTUPINFOW startup_info;
   wchar_t *command_line = NULL;
@@ -203,7 +224,16 @@ sps_spawn (sps_fd_t child_stdin, sps_fd_t child_stdout, sps_fd_t child_stderr,
   if (sps_split_args (args, args_len, &argv) != 0)
     return sps_fill_errbuf (errbuf, errbuf_len, "sps_spawn: empty argument blob", 0);
 
-  /* The child side of each pipe must be inheritable. */
+  /* Resolve both output streams in order so a MERGE stderr can target stdout.
+     SILENCE handles are created here and must be cleaned up after spawn. */
+  stdin_handle = sps_resolve_stdio (stdio->stdin_mode, stdio->stdin_fd,
+                                    STD_INPUT_HANDLE, NULL);
+  stdout_handle = sps_resolve_stdio (stdio->stdout_mode, stdio->stdout_fd,
+                                     STD_OUTPUT_HANDLE, NULL);
+  stderr_handle = sps_resolve_stdio (stdio->stderr_mode, stdio->stderr_fd,
+                                     STD_ERROR_HANDLE, stdout_handle);
+
+  /* Ensure the deskriptor handed to the child is inheritable. */
   SetHandleInformation (stdin_handle, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
   SetHandleInformation (stdout_handle, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
   SetHandleInformation (stderr_handle, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
@@ -219,7 +249,12 @@ sps_spawn (sps_fd_t child_stdin, sps_fd_t child_stdout, sps_fd_t child_stderr,
   command_line = sps_build_command_line (argv, &cmd_len);
   sps_free_args (argv);
   if (command_line == NULL)
-    return sps_fill_errbuf (errbuf, errbuf_len, "sps_spawn: cannot build command line", 0);
+    {
+      if (stdio->stdin_mode == SPS_STDIO_SILENCE)  CloseHandle (stdin_handle);
+      if (stdio->stdout_mode == SPS_STDIO_SILENCE) CloseHandle (stdout_handle);
+      if (stdio->stderr_mode == SPS_STDIO_SILENCE) CloseHandle (stderr_handle);
+      return sps_fill_errbuf (errbuf, errbuf_len, "sps_spawn: cannot build command line", 0);
+    }
 
   if (cwd != NULL)
     {
@@ -228,6 +263,9 @@ sps_spawn (sps_fd_t child_stdin, sps_fd_t child_stdout, sps_fd_t child_stderr,
                                          (size_t) wide_cwd_len * sizeof (wchar_t));
       if (wide_cwd == NULL)
         {
+          if (stdio->stdin_mode == SPS_STDIO_SILENCE)  CloseHandle (stdin_handle);
+          if (stdio->stdout_mode == SPS_STDIO_SILENCE) CloseHandle (stdout_handle);
+          if (stdio->stderr_mode == SPS_STDIO_SILENCE) CloseHandle (stderr_handle);
           LocalFree (command_line);
           return sps_fill_errbuf (errbuf, errbuf_len, "sps_spawn: cannot convert cwd", 0);
         }
@@ -241,6 +279,12 @@ sps_spawn (sps_fd_t child_stdin, sps_fd_t child_stdout, sps_fd_t child_stderr,
   if (wide_cwd)
     LocalFree (wide_cwd);
   LocalFree (command_line);
+
+  /* Close NUL handles we opened ourselves; pipe ends remain owned by the
+     caller (closed via sps_close after a successful spawn). */
+  if (stdio->stdin_mode == SPS_STDIO_SILENCE)  CloseHandle (stdin_handle);
+  if (stdio->stdout_mode == SPS_STDIO_SILENCE) CloseHandle (stdout_handle);
+  if (stdio->stderr_mode == SPS_STDIO_SILENCE) CloseHandle (stderr_handle);
 
   if (!ok)
     {

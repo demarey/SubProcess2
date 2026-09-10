@@ -3,9 +3,9 @@ I am an FFI library wrapping the native spawn shim (`libsps_spawn` on Unix,
 `sps_spawn.dll` on Windows) that replaces the former GLib `GSubprocess`
 dependency. I expose the whole process I/O surface the package needs:
 
-- `newPipe:parent:` to create an anonymous pipe wired for a child role;
-- `spawnStdin:stdout:stderr:...` to launch a child, wiring the given standard
-  stream descriptors and working directory;
+- `newPipe:` to create an anonymous pipe wired for a child role;
+- `spawnStdio:args:cwd:error:errorLength:` to launch a child, wiring its
+  standard streams (per SPSStdioSpec) and working directory;
 - `read:buffer:size:` / `write:buffer:size:` / `closeFd:` / `fdSetNonBlocking:`
   to move bytes on a pipe descriptor;
 - `waitProcess:block:status:` to wait for a child;
@@ -84,9 +84,9 @@ SPSSpawnLibrary >> read: aFd buffer: aBuffer size: aCount [
 ]
 
 { #category : #ffi }
-SPSSpawnLibrary >> spawnStdin: aStdinFd stdout: aStdoutFd stderr: aStderrFd args: anArgsBlob argsLength: anArgsLength cwd: aCwdString error: anErrBuf errorLength: anErrBufLength [
+SPSSpawnLibrary >> spawnStdio: aStdioSpec args: anArgsBlob argsLength: anArgsLength cwd: aCwdString error: anErrBuf errorLength: anErrBufLength [
 
-	^ self ffiCall: #(longlong sps_spawn(size_t aStdinFd, size_t aStdoutFd, size_t aStderrFd, const char* anArgsBlob, size_t anArgsLength, const char* aCwdString, char* anErrBuf, size_t anErrBufLength))
+	^ self ffiCall: #(longlong sps_spawn(SPSStdioSpec* aStdioSpec, const char* anArgsBlob, size_t anArgsLength, const char* aCwdString, char* anErrBuf, size_t anErrBufLength))
 ]
 
 { #category : #ffi }

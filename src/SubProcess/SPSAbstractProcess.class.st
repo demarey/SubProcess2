@@ -184,7 +184,7 @@ SPSAbstractProcess >> spawnProcess [
 	 them as channels)."
 
 	| pipes argsBlob cwd errBuf spawnResult |
-	pipes := SPSStdioPipes forSpawnUsing: self ffiLibrary.
+	pipes := SPSStdioPipes forSpawnUsing: self ffiLibrary configuration: self configuration.
 	pipes ifNil: [ ^ self handleSpawnError: 'Cannot create pipes' code: 0 ].
 
 	argsBlob := self argsBlob.
@@ -202,19 +202,28 @@ SPSAbstractProcess >> spawnProcess [
 			^ self handleSpawnError: (self cStringBytesFrom: errBuf) code: (0 - spawnResult) ].
 
 	pipes closeAfterSuccessfulSpawn.
-	^ self handleSpawnSuccess: spawnResult parentStdout: pipes stdout parent parentStderr: pipes stderr parent
+	^ self
+		handleSpawnSuccess: spawnResult
+		parentStdout: (self parentEndOf: pipes stdout)
+		parentStderr: (self parentEndOf: pipes stderr)
+]
+
+{ #category : #'private - spawning' }
+SPSAbstractProcess >> parentEndOf: aPipeEndsOrNil [
+
+	"Answer the parent descriptor of aPipeEndsOrNil, or nil when there is no
+	 pipe for that stream (silence / inherit / merge)."
+
+	^ aPipeEndsOrNil ifNotNil: [ aPipeEndsOrNil parent ]
 ]
 
 { #category : #'private - spawning' }
 SPSAbstractProcess >> invokeSpawnWithPipes: pipes args: argsBlob cwd: cwd errBuf: errBuf [
 
-	"Invoke the native spawn shim with the file descriptors of the stdio pipes
-	 answered by SPSStdioPipes."
+	"Invoke the native spawn shim with the stdio spec answered by SPSStdioPipes."
 
 	^ self ffiLibrary
-		spawnStdin: pipes stdin child
-		stdout: pipes stdout child
-		stderr: pipes stderr child
+		spawnStdio: pipes stdioSpec
 		args: argsBlob
 		argsLength: argsBlob byteSize
 		cwd: cwd
@@ -229,16 +238,17 @@ SPSAbstractProcess >> handleSpawnError: aByteArrayOrString code: anInteger [
 ]
 
 { #category : #'private - spawning' }
-SPSAbstractProcess >> handleSpawnSuccess: aProcessToken parentStdout: parentStdout parentStderr: parentStderr [
+SPSAbstractProcess >> handleSpawnSuccess: aProcessToken parentStdout: aProcessParentStdout parentStderr: aProcessParentStderr [
 
 	"Template method: wire the process handle and make the parent stdout/stderr
-	 descriptors non-blocking, then delegate the subclass-specific follow-up
+	 descriptors non-blocking (when present; silenced / inherited / merged
+	 streams have no parent end), then delegate the subclass-specific follow-up
 	 (sync drains and waits, async builds the pipe readers)."
 
 	processHandle := SPSProcessHandle value: aProcessToken.
-	self ffiLibrary fdSetNonBlocking: parentStdout.
-	self ffiLibrary fdSetNonBlocking: parentStderr.
-	^ self processSpawnedWithParentStdout: parentStdout parentStderr: parentStderr
+	aProcessParentStdout ifNotNil: [ self ffiLibrary fdSetNonBlocking: aProcessParentStdout ].
+	aProcessParentStderr ifNotNil: [ self ffiLibrary fdSetNonBlocking: aProcessParentStderr ].
+	^ self processSpawnedWithParentStdout: aProcessParentStdout parentStderr: aProcessParentStderr
 ]
 
 { #category : #'private - spawning' }

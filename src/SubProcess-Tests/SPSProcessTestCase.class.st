@@ -51,6 +51,34 @@ SPSProcessTestCase >> isRunningOnWindows [
 	^ OSPlatform current isWindows
 ]
 
+{ #category : #'helpers - redirecting' }
+SPSProcessTestCase >> redirectingStandardOutputInto: anFileReference during: aBlock [
+
+	"Run aBlock with the caller's file descriptor 1 redirected into anFileReference,
+	 then restore it and answer the file contents. Used to observe the #inherit
+	 stdio behavior, which writes directly onto the caller's stdout descriptor.
+	 POSIX-only."
+
+	| posix savedFd scratchFd contents |
+	anFileReference ensureDelete.
+	anFileReference writeStreamDo: [ :stream | ].
+	posix := SPSTestPosixLibrary uniqueInstance.
+	savedFd := posix dup2: SPSTestPosixLibrary stdOutFd to: 255.
+	scratchFd := posix
+		open: anFileReference fullName
+		flags: (SPSTestPosixLibrary oRdwr + SPSTestPosixLibrary oTrunc)
+		mode: 0.
+	self assert: scratchFd >= 0.
+	posix dup2: scratchFd to: SPSTestPosixLibrary stdOutFd.
+	[ aBlock value.
+	contents := anFileReference contents ]
+		ensure: [
+			posix dup2: savedFd to: SPSTestPosixLibrary stdOutFd.
+			posix close: scratchFd.
+			anFileReference ensureDelete ].
+	^ contents
+]
+
 { #category : #configuring }
 SPSProcessTestCase >> skipIfRunningOnWindows [
 

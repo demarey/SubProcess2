@@ -14,7 +14,10 @@ Class {
 		'arguments',
 		'workingDirectory',
 		'encoding',
-		'collectsOutput'
+		'collectsOutput',
+		'stdInStrategy',
+		'stdOutStrategy',
+		'stdErrStrategy'
 	],
 	#category : #SubProcess
 }
@@ -102,6 +105,24 @@ SPSProcessConfiguration >> encoding: anEncoding [
 	encoding := anEncoding
 ]
 
+{ #category : #'api - configuring' }
+SPSProcessConfiguration >> inheritStderr [
+
+	stdErrStrategy := #inherit
+]
+
+{ #category : #'api - configuring' }
+SPSProcessConfiguration >> inheritStdin [
+
+	stdInStrategy := #inherit
+]
+
+{ #category : #'api - configuring' }
+SPSProcessConfiguration >> inheritStdout [
+
+	stdOutStrategy := #inherit
+]
+
 { #category : #initialization }
 SPSProcessConfiguration >> initialize [
 
@@ -110,7 +131,68 @@ SPSProcessConfiguration >> initialize [
 	encoding := OSPlatform current isWindows
 		ifTrue: [ 'cp-850' ]
 		ifFalse: [ 'utf8' ].
-	 
+	stdInStrategy := #pipe.
+	stdOutStrategy := #pipe.
+	stdErrStrategy := #pipe
+]
+
+{ #category : #'api - configuring' }
+SPSProcessConfiguration >> mergeStandardError [
+
+	self assertStdOutIsPiped.
+	stdErrStrategy := #merge
+]
+
+{ #category : #'api - configuring' }
+SPSProcessConfiguration >> silenceStandardOutput [
+
+	self silenceStdout.
+	self silenceStderr
+]
+
+{ #category : #'api - configuring' }
+SPSProcessConfiguration >> silenceStderr [
+
+	stdErrStrategy := #silence
+]
+
+{ #category : #'api - configuring' }
+SPSProcessConfiguration >> silenceStdin [
+
+	stdInStrategy := #silence
+]
+
+{ #category : #'api - configuring' }
+SPSProcessConfiguration >> silenceStdout [
+
+	stdOutStrategy := #silence
+]
+
+{ #category : #'api - acquiring' }
+SPSProcessConfiguration >> stdErrStrategy [
+
+	^ stdErrStrategy
+]
+
+{ #category : #'api - acquiring' }
+SPSProcessConfiguration >> stdInStrategy [
+
+	^ stdInStrategy
+]
+
+{ #category : #'api - acquiring' }
+SPSProcessConfiguration >> stdOutStrategy [
+
+	^ stdOutStrategy
+]
+
+{ #category : #private }
+SPSProcessConfiguration >> assertStdOutIsPiped [
+
+	"#merge routes stderr onto stdout, which only works when stdout is captured (#pipe)."
+
+	stdOutStrategy = #pipe ifFalse: [
+		self error: 'Merging standard error requires standard output to be piped' ]
 ]
 
 { #category : #'api - running' }

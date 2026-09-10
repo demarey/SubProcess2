@@ -246,6 +246,69 @@ ASyncSubProcessTest >> testStreamingOutputCallback [
 ]
 
 { #category : #tests }
+ASyncSubProcessTest >> testRunningSilencedCommandProducesNoOutput [
+
+	process := (self newProcessConfigurationWithShellCommand: 'echo hello')
+		silenceStdout;
+		async.
+
+	process run.
+
+	self assert: (self waitForCompletionOf: process).
+	self assert: process isComplete.
+	self assert: process isExitSuccess.
+	self assert: process stdOut isEmpty.
+]
+
+{ #category : #tests }
+ASyncSubProcessTest >> testRunningCommandWithMergedStderr [
+
+	| out |
+	self skipIfRunningOnWindows.
+	process := (self newProcessConfigurationWithShellCommand: 'echo to-stdout; echo to-stderr 1>&2')
+		collectsOutput;
+		mergeStandardError;
+		async.
+
+	process run.
+
+	self assert: (self waitForCompletionOf: process).
+	self assert: process isComplete.
+	self assert: process isExitSuccess.
+	self assert: process stdErr isEmpty.
+	out := process stdOut.
+	self assert: (out includesSubstring: 'to-stdout').
+	self assert: (out includesSubstring: 'to-stderr').
+]
+
+{ #category : #tests }
+ASyncSubProcessTest >> testRunningCommandWithInheritedStdout [
+
+	"Verify #inheritStdout on the async path: the child writes its standard
+	 output directly onto the caller's file descriptor 1. We temporarily
+	 redirect fd 1 to a scratch file, run the child, restore fd 1, then read
+	 the marker back from the file."
+
+	| contents tempFile |
+	self skipIfRunningOnWindows.
+	tempFile := Smalltalk imagePath asFileReference parent / 'inherit-scratch.txt'.
+	contents := self
+		redirectingStandardOutputInto: tempFile
+		during: [
+			process := (self newProcessConfigurationWithShellCommand: 'echo inherited-marker')
+				inheritStdout;
+				async.
+
+			process run.
+			self assert: (self waitForCompletionOf: process) ].
+
+	self assert: process isComplete.
+	self assert: process isExitSuccess.
+	self deny: contents isEmpty.
+	self assert: (contents includesSubstring: 'inherited-marker').
+]
+
+{ #category : #tests }
 ASyncSubProcessTest >> testTerminate [
 
 	process := self newProcessConfigurationForLongRunningProcess async.

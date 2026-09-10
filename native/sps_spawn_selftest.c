@@ -91,8 +91,16 @@ sps_selftest_run_parent (const char *self_path)
         n += len + 1;
       }
 
-    pid = sps_spawn (stdin_child_fd, stdout_child_fd, stderr_child_fd,
-                     args_blob, n, NULL, errbuf, sizeof errbuf);
+    sps_stdio_spec_t stdio;
+    memset (&stdio, 0, sizeof stdio);
+    stdio.stdin_mode = SPS_STDIO_PIPE;
+    stdio.stdout_mode = SPS_STDIO_PIPE;
+    stdio.stderr_mode = SPS_STDIO_PIPE;
+    stdio.stdin_fd = stdin_child_fd;
+    stdio.stdout_fd = stdout_child_fd;
+    stdio.stderr_fd = stderr_child_fd;
+
+    pid = sps_spawn (&stdio, args_blob, n, NULL, errbuf, sizeof errbuf);
   }
   if (pid <= 0)
     {
@@ -204,12 +212,16 @@ static int
 sps_selftest_run_error (void)
 {
   static const char blob[] = "/no/such/program_xyz";
-  sps_fd_t unused[3] = { (sps_fd_t) 0, (sps_fd_t) 1, (sps_fd_t) 2 };
   char errbuf[512];
   intptr_t pid;
 
-  pid = sps_spawn (unused[0], unused[1], unused[2],
-                   blob, sizeof blob - 1, NULL, errbuf, sizeof errbuf);
+  sps_stdio_spec_t stdio;
+  memset (&stdio, 0, sizeof stdio);
+  stdio.stdin_mode = SPS_STDIO_INHERIT;
+  stdio.stdout_mode = SPS_STDIO_INHERIT;
+  stdio.stderr_mode = SPS_STDIO_INHERIT;
+
+  pid = sps_spawn (&stdio, blob, sizeof blob - 1, NULL, errbuf, sizeof errbuf);
   if (pid > 0)
     {
       printf ("FAIL error-path: unexpected pid %ld\n", (long) pid);
@@ -219,14 +231,161 @@ sps_selftest_run_error (void)
   return 0;
 }
 
+/* Child mode: write a known banner to stdout and stderr, then exit. Used to
+ * observe the SILENCE and MERGE output policies. */
+static int
+run_child_write (void)
+{
+  static const char out_msg[] = "WRITE-OUT\n";
+  static const char err_msg[] = "WRITE-ERR\n";
+  sps_write (1, out_msg, sizeof out_msg - 1);
+  sps_write (2, err_msg, sizeof err_msg - 1);
+  return 0;
+}
+
+/* Build a NUL-separated args blob ("self_path\0--child-echo\0...") for the
+ * given child mode, into out_blob (out_len bytes available). Answer the blob
+ * byte length (excluding the trailing NUL is included as argv terminator). */
+static size_t
+sps_selftest_build_blob (const char *self_path, const char *child_mode,
+                         char *out_blob, size_t out_len)
+{
+  const char *parts[] = { self_path, child_mode, NULL };
+  size_t n = 0;
+  for (int i = 0; parts[i] != NULL && n < out_len; i++)
+    {
+      size_t len = strlen (parts[i]);
+      if (n + len + 1 > out_len)
+        break;
+      memcpy (out_blob + n, parts[i], len + 1);
+      n += len + 1;
+    }
+  return n;
+}
+
+/* Run the SILENCE and MERGE output policies and assert the observable result:
+ * SILENCE -> child writes produce no piped output; MERGE -> the piped stdout
+ * carries both WRITE-OUT and WRITE-ERR while stderr is not piped. */
+static int
+sps_selftest_run_out_policies (const char *self_path)
+{
+  int ok = 1;
+
+  /* SILENCE: no pipe for stdout, child output must be discarded. */
+  {
+    char blob[2048];
+    size_t blob_len;
+    intptr_t pid;
+    sps_stdio_spec_t stdio;
+    blob_len = sps_selftest_build_blob (self_path, "--child-write",
+                                        blob, sizeof blob);
+    memset (&stdio, 0, sizeof stdio);
+    stdio.stdin_mode = SPS_STDIO_INHERIT;
+    stdio.stdout_mode = SPS_STDIO_SILENCE;
+    stdio.stderr_mode = SPS_STDIO_INHERIT;
+
+    pid = sps_spawn (&stdio, blob, blob_len, NULL, NULL, 0);
+    if (pid <= 0)
+      {
+        printf ("FAIL silence spawn\n");
+        return 2;
+      }
+    {
+      int exit_code = -1;
+      if (sps_selftest_wait (pid, &exit_code) != 0)
+        ok = 0;
+      printf ("%s silence exit=%d\n", exit_code == 0 ? "PASS" : "FAIL", exit_code);
+      if (exit_code != 0)
+        ok = 0;
+    }
+  }
+
+  /* MERGE: only stdout is piped; stderr is directed onto the stdout pipe. */
+  {
+    char blob[2048];
+    size_t blob_len;
+    intptr_t pid;
+    char buf[256];
+    long total = 0;
+    int guard = 0;
+    sps_fd_t stdout_child_fd, stdout_parent_fd;
+    sps_stdio_spec_t stdio;
+    blob_len = sps_selftest_build_blob (self_path, "--child-write",
+                                        blob, sizeof blob);
+
+    if (sps_pipe (SPS_PIPE_STDOUT, &stdout_parent_fd,
+                      &stdout_child_fd) != 0)
+      {
+        printf ("FAIL merge pipe\n");
+        return 2;
+      }
+    memset (&stdio, 0, sizeof stdio);
+    stdio.stdin_mode = SPS_STDIO_INHERIT;
+    stdio.stdout_mode = SPS_STDIO_PIPE;
+    stdio.stderr_mode = SPS_STDIO_MERGE;
+    stdio.stdout_fd = stdout_child_fd;
+
+    pid = sps_spawn (&stdio, blob, blob_len, NULL, NULL, 0);
+    if (pid <= 0)
+      {
+        printf ("FAIL merge spawn\n");
+        return 2;
+      }
+    sps_close (stdout_child_fd);
+    {
+      int exit_code = -1;
+      if (sps_selftest_wait (pid, &exit_code) != 0)
+        ok = 0;
+    }
+    while (guard < 200)
+      {
+        long n = sps_read (stdout_parent_fd, buf + total,
+                           (long) sizeof buf - total);
+        if (n == 0)
+          break;
+        if (n > 0)
+          {
+            total += n;
+            guard = 0;
+          }
+        else
+          {
+            guard++;
+          }
+      }
+    sps_close (stdout_parent_fd);
+    {
+      int has_out = 0, has_err = 0;
+      int i;
+      for (i = 0; i < (int) total; i++)
+        {
+          if (i + 10 <= (int) total && memcmp (buf + i, "WRITE-OUT", 9) == 0)
+            has_out = 1;
+          if (i + 9 <= (int) total && memcmp (buf + i, "WRITE-ERR", 9) == 0)
+            has_err = 1;
+        }
+      ok = ok && has_out && has_err;
+      printf ("%s merge has-out=%d has-err=%d total=%ld\n",
+              (has_out && has_err) ? "PASS" : "FAIL", has_out, has_err, total);
+    }
+  }
+
+  return ok ? 0 : 2;
+}
+
 int
 main (int argc, char **argv)
 {
   int result;
   if (argc > 1 && strcmp (argv[1], "--child-echo") == 0)
     return run_child_echo ();
+  if (argc > 1 && strcmp (argv[1], "--child-write") == 0)
+    return run_child_write ();
   result = sps_selftest_run_parent (argv[0]);
   if (result != 0)
     return result;
-  return sps_selftest_run_error ();
+  result = sps_selftest_run_error ();
+  if (result != 0)
+    return result;
+  return sps_selftest_run_out_policies (argv[0]);
 }

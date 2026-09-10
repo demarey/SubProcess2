@@ -99,8 +99,77 @@ SyncSubProcessTest >> testRunningBasicCommandOnWindows [
 ]
 
 { #category : #tests }
-SyncSubProcessTest >> testRunningCommandInGivenWorkingDirectory [
-	
+SyncSubProcessTest >> testRunningSilencedCommandProducesNoOutput [
+
+	self skipIfRunningOnWindows.
+	process := SPSProcessConfiguration new
+		command: '/bin/echo';
+		arguments: { 'hello' };
+		silenceStdout;
+		sync.
+
+	process run.
+
+	self assert: process isComplete.
+	self assert: process isSpawnSuccess.
+	self assert: process isExitSuccess.
+	self assert: process stdOut isEmpty.
+	self assert: process stdErr isEmpty.
+]
+
+{ #category : #tests }
+SyncSubProcessTest >> testRunningCommandWithMergedStderrCapturesBothOnStdout [
+
+	| output |
+	self skipIfRunningOnWindows.
+	process := SPSProcessConfiguration new
+		collectsOutput;
+		mergeStandardError;
+		command: '/bin/sh';
+		arguments: { '-c'. 'echo to-stdout; echo to-stderr 1>&2' };
+		sync.
+
+	process run.
+
+	self assert: process isComplete.
+	self assert: process isSpawnSuccess.
+	self assert: process isExitSuccess.
+	self assert: process stdErr isEmpty.
+	output := process stdOut.
+	self assert: (output includesSubstring: 'to-stdout').
+	self assert: (output includesSubstring: 'to-stderr').
+]
+
+{ #category : #tests }
+SyncSubProcessTest >> testRunningCommandWithInheritedStdout [
+
+	"Verify #inheritStdout: the child writes its standard output directly onto
+	 the caller's file descriptor 1. We temporarily redirect fd 1 to a scratch
+	 file, run the child, restore fd 1, then read the marker back from the file."
+
+	| contents tempFile |
+	self skipIfRunningOnWindows.
+	tempFile := Smalltalk imagePath asFileReference parent / 'inherit-scratch.txt'.
+	contents := self
+		redirectingStandardOutputInto: tempFile
+		during: [
+			process := SPSProcessConfiguration new
+				command: '/bin/sh';
+				arguments: { '-c'. 'echo inherited-marker' };
+				inheritStdout;
+				sync.
+
+			process run ].
+
+	self assert: process isComplete.
+	self assert: process isSpawnSuccess.
+	self assert: process isExitSuccess.
+	self deny: contents isEmpty.
+	self assert: (contents includesSubstring: 'inherited-marker').
+]
+
+{ #category : #tests }
+SyncSubProcessTest >> testRunningCommandInGivenWorkingDirectory [	
 	| dir config |
 	dir := Smalltalk imagePath asFileReference parent / 'pharo-local'.
 	config := SPSProcessConfiguration new

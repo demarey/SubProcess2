@@ -36,16 +36,41 @@ typedef enum {
   SPS_PIPE_STDERR = 2   /* child writes, parent reads */
 } sps_pipe_kind_t;
 
+/* How each of the child's standard streams is wired at spawn time. */
+typedef enum {
+  SPS_STDIO_PIPE = 0,     /* connect an sps_pipe child end to the stream   */
+  SPS_STDIO_INHERIT = 1,  /* child inherits the caller's descriptor        */
+  SPS_STDIO_SILENCE = 2,  /* redirect the stream to /dev/null (or NUL)     */
+  SPS_STDIO_MERGE = 3     /* stderr is wired onto the resolved stdout      */
+} sps_stdio_mode_t;
+
+/* Describes the wiring of a child's standard streams together with the pipe
+ * child-ends (sps_pipe) to use for streams requested as SPS_STDIO_PIPE. A
+ * stream asked to INHERIT or SILENCE ignores its fd field (pass 0).
+ *
+ * The modes must be processed in stdin, stdout, stderr order so that stderr
+ * SPS_STDIO_MERGE can target whatever stdout resolved to. */
+typedef struct {
+  int32_t    stdin_mode;
+  int32_t    stdout_mode;
+  int32_t    stderr_mode;
+  int32_t    reserved;      /* explicit padding: keeps the uintptr members aligned */
+  sps_fd_t   stdin_fd;
+  sps_fd_t   stdout_fd;
+  sps_fd_t   stderr_fd;
+} sps_stdio_spec_t;
+
 /* Create an anonymous pipe for a child role. Writes the parent and child ends
  * into *out_parent / *out_child (the parent end is the one the caller uses for
  * its own reads/writes; the child end goes to sps_spawn). Returns 0 on
  * success, -1 on failure. */
 int sps_pipe (int kind, sps_fd_t *out_parent, sps_fd_t *out_child);
 
-/* Launch a child process, wiring child_stdin/out/err (child ends from
- * sps_pipe) to fds 0/1/2. args is the full invocation as a NUL-separated blob
- * ("prog\0arg1\0arg2\0"); args_len is its byte length (may contain embedded
- * NULs). cwd may be NULL to inherit the parent's directory.
+/* Launch a child process, wiring its standard streams according to stdio
+ * (the sps_stdio_spec_t modes and pipe child-ends). args is the full
+ * invocation as a NUL-separated blob ("prog\0arg1\0arg2\0"); args_len is its
+ * byte length (may contain embedded NULs). cwd may be NULL to inherit the
+ * parent's directory.
  *
  * Returns an opaque process token on success: on Unix the real OS pid, on
  * Windows the CreateProcess HANDLE kept open for the child's lifetime. On
@@ -53,10 +78,9 @@ int sps_pipe (int kind, sps_fd_t *out_parent, sps_fd_t *out_child);
  * with a NUL-terminated message.
  *
  * After a successful spawn the caller MUST close its own copy of each
- * child-facing end with sps_close; otherwise the parent's read ends never see
- * EOF. */
-intptr_t sps_spawn (sps_fd_t child_stdin, sps_fd_t child_stdout,
-                    sps_fd_t child_stderr,
+ * child-facing pipe end with sps_close; otherwise the parent's read ends never
+ * see EOF. */
+intptr_t sps_spawn (const sps_stdio_spec_t *stdio,
                     const char *args, size_t args_len, const char *cwd,
                     char *errbuf, size_t errbuf_len);
 

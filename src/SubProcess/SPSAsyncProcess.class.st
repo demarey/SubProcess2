@@ -265,8 +265,10 @@ SPSAsyncProcess >> processSpawnedWithParentStdout: parentStdout parentStderr: pa
 	stdOutFd := parentStdout.
 	stdErrFd := parentStderr.
 	readBuffer := self newOutputReadBuffer.
-	stdOutPipeReader := self newPipeReaderForFd: stdOutFd storingCollectorIn: [ :aStream | stdOutCollector := aStream ].
-	stdErrPipeReader := self newPipeReaderForFd: stdErrFd storingCollectorIn: [ :aStream | stdErrCollector := aStream ]
+	stdOutPipeReader := parentStdout
+		ifNotNil: [ self newPipeReaderForFd: parentStdout storingCollectorIn: [ :aStream | stdOutCollector := aStream ] ].
+	stdErrPipeReader := parentStderr
+		ifNotNil: [ self newPipeReaderForFd: parentStderr storingCollectorIn: [ :aStream | stdErrCollector := aStream ] ]
 ]
 
 { #category : #'private - output' }

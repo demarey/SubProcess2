@@ -97,10 +97,33 @@ sps_pipe (int kind, sps_fd_t *out_parent, sps_fd_t *out_child)
   return 0;
 }
 
+/*
+ * Apply the file action that wires one of the child's standard streams
+ * (fd is STDIN_FILENO, STDOUT_FILENO or STDERR_FILENO) according to mode.
+ * Returns 0 on success, -1 on failure. */
+static int
+sps_apply_stdio (posix_spawn_file_actions_t *actions, int fd,
+                 sps_stdio_mode_t mode, sps_fd_t pipe_fd,
+                 int merge /* stderr merge targets resolved stdin/stdout */)
+{
+  switch (mode)
+    {
+    case SPS_STDIO_INHERIT:
+      return 0;                              /* keep the caller's fd */
+    case SPS_STDIO_SILENCE:
+      return posix_spawn_file_actions_addopen (actions, fd, "/dev/null",
+                                               O_RDWR, 0);
+    case SPS_STDIO_MERGE:
+      return posix_spawn_file_actions_adddup2 (actions, merge, fd);
+    case SPS_STDIO_PIPE:
+    default:
+      return posix_spawn_file_actions_adddup2 (actions, (int) pipe_fd, fd);
+    }
+}
+
 intptr_t
-sps_spawn (sps_fd_t child_stdin, sps_fd_t child_stdout, sps_fd_t child_stderr,
-           const char *args, size_t args_len, const char *cwd,
-           char *errbuf, size_t errbuf_len)
+sps_spawn (const sps_stdio_spec_t *stdio, const char *args, size_t args_len,
+           const char *cwd, char *errbuf, size_t errbuf_len)
 {
   posix_spawn_file_actions_t actions;
   char **argv = NULL;
@@ -117,13 +140,18 @@ sps_spawn (sps_fd_t child_stdin, sps_fd_t child_stdout, sps_fd_t child_stderr,
       return sps_fill_errbuf (errbuf, errbuf_len, "sps_spawn: file_actions_init failed", err);
     }
 
-  err = posix_spawn_file_actions_adddup2 (&actions, (int) child_stdin, STDIN_FILENO);
+  /* Process in stdin, stdout, stderr order so that a MERGE stderr can target
+     whatever stdout (or stdin) was already resolved. */
+  err = sps_apply_stdio (&actions, STDIN_FILENO, stdio->stdin_mode,
+                         stdio->stdin_fd, 0);
   if (err != 0)
     goto fail_actions;
-  err = posix_spawn_file_actions_adddup2 (&actions, (int) child_stdout, STDOUT_FILENO);
+  err = sps_apply_stdio (&actions, STDOUT_FILENO, stdio->stdout_mode,
+                         stdio->stdout_fd, STDOUT_FILENO);
   if (err != 0)
     goto fail_actions;
-  err = posix_spawn_file_actions_adddup2 (&actions, (int) child_stderr, STDERR_FILENO);
+  err = sps_apply_stdio (&actions, STDERR_FILENO, stdio->stderr_mode,
+                         stdio->stderr_fd, STDOUT_FILENO);
   if (err != 0)
     goto fail_actions;
 

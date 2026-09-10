@@ -126,9 +126,11 @@ SPSProcess >> readToEndFromFd: aFd [
 	"Read a non-blocking pipe descriptor until EOF (the child has closed its
 	 end, i.e. exited), collecting the raw bytes. A negative read result means
 	 no data is currently available, so we briefly yield and retry; EOF (0)
-	 stops the loop. Returns a ByteArray."
+	 stops the loop. Returns a ByteArray. A nil fd (silenced / inherited /
+	 merged stream, or stderr merged into stdout) yields an empty ByteArray."
 
 	| library chunk output done count |
+	aFd ifNil: [ ^ ByteArray new: 0 ].
 	library := self ffiLibrary.
 	chunk := self newOutputReadBuffer.
 	output := ByteArray new: 0.
