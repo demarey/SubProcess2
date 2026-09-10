@@ -232,14 +232,23 @@ sps_selftest_run_error (void)
 }
 
 /* Child mode: write a known banner to stdout and stderr, then exit. Used to
- * observe the SILENCE and MERGE output policies. */
+ * observe the SILENCE and MERGE output policies. The descriptors must be the
+ * real standard handles: on Unix these are the fd numbers 1/2, on Windows the
+ * child's inherited HANDLEs (resolved via GetStdHandle). */
 static int
 run_child_write (void)
 {
   static const char out_msg[] = "WRITE-OUT\n";
   static const char err_msg[] = "WRITE-ERR\n";
-  sps_write (1, out_msg, sizeof out_msg - 1);
-  sps_write (2, err_msg, sizeof err_msg - 1);
+#if defined(_WIN32)
+  sps_fd_t stdout_fd = (sps_fd_t) GetStdHandle (STD_OUTPUT_HANDLE);
+  sps_fd_t stderr_fd = (sps_fd_t) GetStdHandle (STD_ERROR_HANDLE);
+#else
+  sps_fd_t stdout_fd = 1;
+  sps_fd_t stderr_fd = 2;
+#endif
+  sps_write (stdout_fd, out_msg, sizeof out_msg - 1);
+  sps_write (stderr_fd, err_msg, sizeof err_msg - 1);
   return 0;
 }
 
