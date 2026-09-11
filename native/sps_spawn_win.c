@@ -32,119 +32,23 @@
  * On Windows the exit code is encoded into a POSIX-like wait status so the
  * shared POSIX WIFEXITED/WEXITSTATUS decoding works unmodified. */
 
-static int
-sps_fill_errbuf (char *errbuf, size_t errbuf_len, const char *msg, DWORD errnum)
+/* Low-level helpers, defined at the bottom of this file. */
+static char *sps_system_message (DWORD errnum);
+static int sps_fill_errbuf (char *errbuf, size_t errbuf_len,
+                            const char *msg, DWORD errnum);
+static wchar_t *sps_utf8_to_wide (const char *narrow, size_t *out_length);
+static wchar_t *sps_build_command_line (char *const *argv, size_t *out_length);
+typedef struct
 {
-  if (errbuf == NULL || errbuf_len == 0)
-    return -1;
-
-  if (errnum == 0)
-    snprintf (errbuf, errbuf_len, "%s", msg);
-  else
-    {
-      char *sysmsg = NULL;
-      FormatMessageA (FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM
-                      | FORMAT_MESSAGE_IGNORE_INSERTS,
-                      NULL, errnum, 0, (char *) &sysmsg, 0, NULL);
-      snprintf (errbuf, errbuf_len, "%s: %s", msg,
-                sysmsg ? sysmsg : "unknown error");
-      if (sysmsg)
-        LocalFree (sysmsg);
-    }
-
-  return -1;
-}
-
-/* Build a Windows command line from a NULL-terminated narrow argv, quoting
-   arguments that contain spaces and escaping embedded quotes, then convert
-   the whole thing to UTF-16. The caller must LocalFree() the result. */
-static wchar_t *
-sps_build_command_line (char *const *argv, size_t *out_len)
-{
-  size_t total = 0, i;
-  char *narrow;
-  wchar_t *wide;
-  int wide_len;
-
-  for (i = 0; argv[i] != NULL; i++)
-    {
-      size_t len = strlen (argv[i]);
-      size_t arglen = 0;
-      size_t j;
-      int needs_quote = 0;
-
-      for (j = 0; j < len; j++)
-        if (argv[i][j] == ' ' || argv[i][j] == '\t' || argv[i][j] == '"')
-          {
-            needs_quote = 1;
-            break;
-          }
-
-      if (needs_quote)
-        {
-          arglen = 2;                          /* surrounding quotes */
-          for (j = 0; j < len; j++)
-            {
-              if (argv[i][j] == '"')
-                arglen += 2;                   /* \" escaped */
-              else
-                arglen += 1;
-            }
-        }
-      else
-        arglen = len;
-
-      if (i > 0)
-        total += 1;                            /* leading space */
-      total += arglen;
-    }
-  total += 1;                                  /* NUL */
-
-  narrow = (char *) malloc (total);
-  if (narrow == NULL)
-    return NULL;
-
-  {
-    size_t p = 0;
-    for (i = 0; argv[i] != NULL; i++)
-      {
-        size_t len = strlen (argv[i]);
-        size_t j;
-        int needs_quote = 0;
-
-        for (j = 0; j < len; j++)
-          if (argv[i][j] == ' ' || argv[i][j] == '\t' || argv[i][j] == '"')
-            {
-              needs_quote = 1;
-              break;
-            }
-
-        if (i > 0)
-          narrow[p++] = ' ';
-
-        if (needs_quote)
-          narrow[p++] = '"';
-        for (j = 0; j < len; j++)
-          {
-            if (argv[i][j] == '"')
-              narrow[p++] = '\\';
-            narrow[p++] = argv[i][j];
-          }
-        if (needs_quote)
-          narrow[p++] = '"';
-      }
-    narrow[p] = '\0';
-  }
-
-  wide_len = MultiByteToWideChar (CP_UTF8, 0, narrow, -1, NULL, 0);
-  wide = (wchar_t *) LocalAlloc (LMEM_FIXED, (size_t) wide_len * sizeof (wchar_t));
-  if (wide != NULL)
-    MultiByteToWideChar (CP_UTF8, 0, narrow, -1, wide, wide_len);
-
-  free (narrow);
-  *out_len = (size_t) wide_len;
-  return wide;
-}
+  HANDLE in;
+  HANDLE out;
+  HANDLE err;
+} sps_stdio_handles_t;
+static void sps_resolve_stdio_handles (const sps_stdio_spec_t *stdio,
+                                       sps_stdio_handles_t *handles);
+static void sps_set_stdio_inheritable (const sps_stdio_handles_t *handles);
+static void sps_close_silence_handles (const sps_stdio_spec_t *stdio,
+                                       const sps_stdio_handles_t *handles);
 
 int
 sps_pipe (int kind, sps_fd_t *out_parent, sps_fd_t *out_child)
@@ -184,107 +88,56 @@ sps_pipe (int kind, sps_fd_t *out_parent, sps_fd_t *out_child)
   return 0;
 }
 
-/* Resolve a HANDLE for a stream wired with SILENCE / PIPE / MERGE: SILENCE
- * opens NUL, MERGE reuses the already-resolved stdout handle, PIPE uses the
- * given pipe end, INHERIT uses the caller's real standard handle so the child
- * sees the parent's descriptor even under STARTF_USESTDHANDLES. */
-static HANDLE
-sps_resolve_stdio (sps_stdio_mode_t mode, sps_fd_t pipe_fd,
-                   DWORD std_kind, HANDLE merged_stdout)
-{
-  switch (mode)
-    {
-    case SPS_STDIO_INHERIT:
-      return GetStdHandle (std_kind);
-    case SPS_STDIO_SILENCE:
-      return CreateFileW (L"NUL", GENERIC_READ | GENERIC_WRITE,
-                          FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING,
-                          FILE_ATTRIBUTE_NORMAL, NULL);
-    case SPS_STDIO_MERGE:
-      return merged_stdout;
-    case SPS_STDIO_PIPE:
-    default:
-      return (HANDLE) pipe_fd;
-    }
-}
-
 intptr_t
 sps_spawn (const sps_stdio_spec_t *stdio, const char *args, size_t args_len,
            const char *cwd, char *errbuf, size_t errbuf_len)
 {
-  HANDLE stdin_handle, stdout_handle, stderr_handle;
+  sps_stdio_handles_t handles;
   PROCESS_INFORMATION proc_info;
   STARTUPINFOW startup_info;
   wchar_t *command_line = NULL;
   wchar_t *wide_cwd = NULL;
-  size_t cmd_len = 0;
   char **argv = NULL;
   BOOL ok;
 
   if (sps_split_args (args, args_len, &argv) != 0)
     return sps_fill_errbuf (errbuf, errbuf_len, "sps_spawn: empty argument blob", 0);
 
-  /* Resolve both output streams in order so a MERGE stderr can target stdout.
-     SILENCE handles are created here and must be cleaned up after spawn. */
-  stdin_handle = sps_resolve_stdio (stdio->stdin_mode, stdio->stdin_fd,
-                                    STD_INPUT_HANDLE, NULL);
-  stdout_handle = sps_resolve_stdio (stdio->stdout_mode, stdio->stdout_fd,
-                                     STD_OUTPUT_HANDLE, NULL);
-  stderr_handle = sps_resolve_stdio (stdio->stderr_mode, stdio->stderr_fd,
-                                     STD_ERROR_HANDLE, stdout_handle);
+  command_line = sps_build_command_line (argv, NULL);
+  sps_free_args (argv);
+  if (command_line == NULL)
+    return sps_fill_errbuf (errbuf, errbuf_len, "sps_spawn: cannot build command line", 0);
 
-  /* Ensure the deskriptor handed to the child is inheritable. */
-  SetHandleInformation (stdin_handle, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
-  SetHandleInformation (stdout_handle, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
-  SetHandleInformation (stderr_handle, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
+  if (cwd != NULL)
+    {
+      wide_cwd = sps_utf8_to_wide (cwd, NULL);
+      if (wide_cwd == NULL)
+        {
+          LocalFree (command_line);
+          return sps_fill_errbuf (errbuf, errbuf_len, "sps_spawn: cannot convert cwd", 0);
+        }
+    }
+
+  sps_resolve_stdio_handles (stdio, &handles);
+  sps_set_stdio_inheritable (&handles);
 
   memset (&proc_info, 0, sizeof proc_info);
   memset (&startup_info, 0, sizeof startup_info);
   startup_info.cb = sizeof startup_info;
   startup_info.dwFlags = STARTF_USESTDHANDLES;
-  startup_info.hStdInput = stdin_handle;
-  startup_info.hStdOutput = stdout_handle;
-  startup_info.hStdError = stderr_handle;
-
-  command_line = sps_build_command_line (argv, &cmd_len);
-  sps_free_args (argv);
-  if (command_line == NULL)
-    {
-      if (stdio->stdin_mode == SPS_STDIO_SILENCE)  CloseHandle (stdin_handle);
-      if (stdio->stdout_mode == SPS_STDIO_SILENCE) CloseHandle (stdout_handle);
-      if (stdio->stderr_mode == SPS_STDIO_SILENCE) CloseHandle (stderr_handle);
-      return sps_fill_errbuf (errbuf, errbuf_len, "sps_spawn: cannot build command line", 0);
-    }
-
-  if (cwd != NULL)
-    {
-      int wide_cwd_len = MultiByteToWideChar (CP_UTF8, 0, cwd, -1, NULL, 0);
-      wide_cwd = (wchar_t *) LocalAlloc (LMEM_FIXED,
-                                         (size_t) wide_cwd_len * sizeof (wchar_t));
-      if (wide_cwd == NULL)
-        {
-          if (stdio->stdin_mode == SPS_STDIO_SILENCE)  CloseHandle (stdin_handle);
-          if (stdio->stdout_mode == SPS_STDIO_SILENCE) CloseHandle (stdout_handle);
-          if (stdio->stderr_mode == SPS_STDIO_SILENCE) CloseHandle (stderr_handle);
-          LocalFree (command_line);
-          return sps_fill_errbuf (errbuf, errbuf_len, "sps_spawn: cannot convert cwd", 0);
-        }
-      MultiByteToWideChar (CP_UTF8, 0, cwd, -1, wide_cwd, wide_cwd_len);
-    }
+  startup_info.hStdInput  = handles.in;
+  startup_info.hStdOutput = handles.out;
+  startup_info.hStdError  = handles.err;
 
   ok = CreateProcessW (NULL, command_line, NULL, NULL, TRUE,
                        CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW,
                        NULL, wide_cwd, &startup_info, &proc_info);
 
-  if (wide_cwd)
-    LocalFree (wide_cwd);
+  /* NUL handles we opened ourselves for SILENCE close on both outcomes;
+     pipe ends remain owned by the caller (closed via sps_close after spawn). */
+  sps_close_silence_handles (stdio, &handles);
+  LocalFree (wide_cwd);
   LocalFree (command_line);
-
-  /* Close NUL handles we opened ourselves; pipe ends remain owned by the
-     caller (closed via sps_close after a successful spawn). */
-  if (stdio->stdin_mode == SPS_STDIO_SILENCE)  CloseHandle (stdin_handle);
-  if (stdio->stdout_mode == SPS_STDIO_SILENCE) CloseHandle (stdout_handle);
-  if (stdio->stderr_mode == SPS_STDIO_SILENCE) CloseHandle (stderr_handle);
 
   if (!ok)
     {
@@ -295,8 +148,8 @@ sps_spawn (const sps_stdio_spec_t *stdio, const char *args, size_t args_len,
       if (win_err == ERROR_FILE_NOT_FOUND || win_err == ERROR_PATH_NOT_FOUND)
         return sps_fill_errbuf (errbuf, errbuf_len,
                                 "sps_spawn: No such file or directory", 0);
-      return sps_fill_errbuf (errbuf, errbuf_len, "sps_spawn: CreateProcessW failed",
-                              win_err);
+      return sps_fill_errbuf (errbuf, errbuf_len,
+                              "sps_spawn: CreateProcessW failed", win_err);
     }
 
   /* Return the process HANDLE itself as the opaque token. The rest of the
@@ -321,7 +174,7 @@ long
 sps_read (sps_fd_t fd, char *buf, size_t len)
 {
   HANDLE h = (HANDLE) fd;
-  DWORD available = 0, total = 0, pending = 0;
+  DWORD available = 0, total = 0, pending = 0, bytes_read = 0;
 
   /* PeekNamedPipe tells us whether data is ready without blocking, which is
      how we emulate a non-blocking read. lpTotalBytesAvail can exceed
@@ -339,16 +192,13 @@ sps_read (sps_fd_t fd, char *buf, size_t len)
   if (available == 0 && total == 0)
     return -1;                               /* would block: no data at all */
 
-  {
-    DWORD nread = 0;
-    if (!ReadFile (h, buf, (DWORD) len, &nread, NULL))
-      {
-        if (GetLastError () == ERROR_BROKEN_PIPE)
-          return 0;                          /* EOF after draining */
-        return -1;
-      }
-    return (long) nread;
-  }
+  if (!ReadFile (h, buf, (DWORD) len, &bytes_read, NULL))
+    {
+      if (GetLastError () == ERROR_BROKEN_PIPE)
+        return 0;                            /* EOF after draining */
+      return -1;
+    }
+  return (long) bytes_read;
 }
 
 long
@@ -370,7 +220,9 @@ int
 sps_wait (intptr_t token, int block, int *out_status)
 {
   HANDLE h = (HANDLE) token;
-  DWORD res = WaitForSingleObject (h, block ? INFINITE : 0);
+  DWORD res, code = 0;
+
+  res = WaitForSingleObject (h, block ? INFINITE : 0);
 
   if (res == WAIT_TIMEOUT)
     return 0;                              /* still running (poll mode) */
@@ -378,23 +230,20 @@ sps_wait (intptr_t token, int block, int *out_status)
   if (res != WAIT_OBJECT_0)
     return -1;                             /* WAIT_FAILED/ABANDONED: bad/reaped handle */
 
-  {
-    DWORD code = 0;
-    GetExitCodeProcess (h, &code);
+  GetExitCodeProcess (h, &code);
 
-    /* Reap: the handle opened by sps_spawn is closed here (and only here), once
-       the exit has been reported. A later sps_wait on the same token sees an
-       invalid handle and answers -1, which callers treat as already reaped. */
-    CloseHandle (h);
+  /* Reap: the handle opened by sps_spawn is closed here (and only here), once
+     the exit has been reported. A later sps_wait on the same token sees an
+     invalid handle and answers -1, which callers treat as already reaped. */
+  CloseHandle (h);
 
-    if (code == STILL_ACTIVE)
-      return 0;                            /* not actually exited (edge case) */
+  if (code == STILL_ACTIVE)
+    return 0;                            /* not actually exited (edge case) */
 
-    /* Encode the exit code into a POSIX-like wait status so the caller's
-       WIFEXITED/WEXITSTATUS decoding reports it directly. */
-    *out_status = ((int) code << 8) & 0xFFFFFF00;
-    return 1;
-  }
+  /* Encode the exit code into a POSIX-like wait status so the caller's
+     WIFEXITED/WEXITSTATUS decoding reports it directly. */
+  *out_status = ((int) code << 8) & 0xFFFFFF00;
+  return 1;
 }
 
 int
@@ -405,4 +254,244 @@ sps_kill (intptr_t token)
     return -1;
   /* Leave the handle open as the token so a subsequent sps_wait can reap. */
   return 0;
+}
+
+/* --------------------------------------------------------------------------
+ * Low-level helpers
+ * ------------------------------------------------------------------------ */
+
+/* Retrieve the localized system description for a Windows error number as a
+   UTF-8 string. The caller frees the result with LocalFree, or NULL when no
+   description is available. */
+static char *
+sps_system_message (DWORD errnum)
+{
+  wchar_t *wide_message = NULL;
+  char *message = NULL;
+  DWORD wide_length;
+  int size;
+
+  wide_length = FormatMessageW (
+    FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM
+      | FORMAT_MESSAGE_IGNORE_INSERTS,
+    NULL, errnum, 0, (wchar_t *) &wide_message, 0, NULL);
+  if (wide_message == NULL)
+    return NULL;
+
+  size = WideCharToMultiByte (CP_UTF8, 0, wide_message, (int) wide_length,
+                              NULL, 0, NULL, NULL);
+  if (size > 0)
+    {
+      message = (char *) LocalAlloc (LMEM_FIXED, (size_t) size + 1);
+      if (message != NULL)
+        {
+          WideCharToMultiByte (CP_UTF8, 0, wide_message, (int) wide_length,
+                               message, size, NULL, NULL);
+          message[size] = '\0';
+        }
+    }
+  LocalFree (wide_message);
+  return message;
+}
+
+static int
+sps_fill_errbuf (char *errbuf, size_t errbuf_len, const char *msg, DWORD errnum)
+{
+  char *owned_message = NULL;
+  const char *detail = NULL;
+
+  if (errbuf == NULL || errbuf_len == 0)
+    return -1;
+
+  if (errnum != 0)
+    {
+      owned_message = sps_system_message (errnum);
+      detail = owned_message != NULL ? owned_message : "unknown error";
+    }
+
+  if (detail != NULL)
+    snprintf (errbuf, errbuf_len, "%s: %s", msg, detail);
+  else
+    snprintf (errbuf, errbuf_len, "%s", msg);
+
+  if (owned_message != NULL)
+    LocalFree (owned_message);
+
+  return -1;
+}
+
+/* Answer whether an argument must be quoted in a command line because it
+   contains a space, tab, or an embedded double quote. */
+static int
+sps_argument_needs_quoting (const char *argument)
+{
+  for (; *argument != '\0'; argument++)
+    if (*argument == ' ' || *argument == '\t' || *argument == '"')
+      return 1;
+  return 0;
+}
+
+/* Length of an argument once it is written quoted/escaped into a command
+   line (see sps_write_argument). */
+static size_t
+sps_quoted_argument_length (const char *argument)
+{
+  size_t length = strlen (argument);
+  size_t extra = 0;
+  const char *cursor;
+
+  if (!sps_argument_needs_quoting (argument))
+    return length;
+
+  extra += 2;                                /* surrounding quotes */
+  for (cursor = argument; *cursor != '\0'; cursor++)
+    if (*cursor == '"')
+      extra += 1;                            /* added backslash */
+
+  return length + extra;
+}
+
+/* Write an argument (quoted and with embedded quotes escaped) into output,
+   answering how many bytes were written. */
+static size_t
+sps_write_argument (const char *argument, char *output)
+{
+  size_t position = 0;
+  const char *cursor;
+
+  if (sps_argument_needs_quoting (argument))
+    output[position++] = '"';
+  for (cursor = argument; *cursor != '\0'; cursor++)
+    {
+      if (*cursor == '"')
+        output[position++] = '\\';
+      output[position++] = *cursor;
+    }
+  if (sps_argument_needs_quoting (argument))
+    output[position++] = '"';
+
+  return position;
+}
+
+/* Write the arguments of argv into output as a NUL-terminated command line,
+   separated by single spaces, sized beforehand by sps_build_command_line. */
+static void
+sps_fill_command_line (char *output, char *const *argv, size_t argument_count)
+{
+  size_t position = 0;
+  size_t index;
+
+  for (index = 0; index < argument_count; index++)
+    {
+      if (index > 0)
+        output[position++] = ' ';
+      position += sps_write_argument (argv[index], output + position);
+    }
+  output[position] = '\0';
+}
+
+/* Convert a NUL-terminated UTF-8 string to a UTF-16 string. The caller frees
+   the result with LocalFree. */
+static wchar_t *
+sps_utf8_to_wide (const char *narrow, size_t *out_length)
+{
+  wchar_t *wide;
+  int wide_length;
+
+  wide_length = MultiByteToWideChar (CP_UTF8, 0, narrow, -1, NULL, 0);
+  wide = (wchar_t *) LocalAlloc (LMEM_FIXED,
+                                 (size_t) wide_length * sizeof (wchar_t));
+  if (wide != NULL)
+    MultiByteToWideChar (CP_UTF8, 0, narrow, -1, wide, wide_length);
+
+  if (out_length != NULL)
+    *out_length = (size_t) wide_length;
+  return wide;
+}
+
+/* Build a Windows command line from a NULL-terminated narrow argv, quoting
+   arguments that contain spaces and escaping embedded quotes, then convert
+   the whole thing to UTF-16. The caller must LocalFree() the result. */
+static wchar_t *
+sps_build_command_line (char *const *argv, size_t *out_length)
+{
+  size_t total_length = 0;
+  size_t argument_count = 0;
+  size_t index;
+  char *narrow_command_line;
+  wchar_t *wide_command_line;
+
+  for (index = 0; argv[index] != NULL; index++)
+    {
+      total_length += sps_quoted_argument_length (argv[index]);
+      if (index > 0)
+        total_length += 1;                   /* separating space */
+      argument_count++;
+    }
+  total_length += 1;                         /* NUL */
+
+  narrow_command_line = (char *) malloc (total_length);
+  if (narrow_command_line == NULL)
+    return NULL;
+
+  sps_fill_command_line (narrow_command_line, argv, argument_count);
+  wide_command_line = sps_utf8_to_wide (narrow_command_line, out_length);
+
+  free (narrow_command_line);
+  return wide_command_line;
+}
+
+/* Resolve a HANDLE for a stream wired with SILENCE / PIPE / MERGE: SILENCE
+ * opens NUL, MERGE reuses the already-resolved stdout handle, PIPE uses the
+ * given pipe end, INHERIT uses the caller's real standard handle so the child
+ * sees the parent's descriptor even under STARTF_USESTDHANDLES. */
+static HANDLE
+sps_resolve_stdio (sps_stdio_mode_t mode, sps_fd_t pipe_fd,
+                   DWORD std_kind, HANDLE merged_stdout)
+{
+  switch (mode)
+    {
+    case SPS_STDIO_INHERIT:
+      return GetStdHandle (std_kind);
+    case SPS_STDIO_SILENCE:
+      return CreateFileW (L"NUL", GENERIC_READ | GENERIC_WRITE,
+                          FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING,
+                          FILE_ATTRIBUTE_NORMAL, NULL);
+    case SPS_STDIO_MERGE:
+      return merged_stdout;
+    case SPS_STDIO_PIPE:
+    default:
+      return (HANDLE) pipe_fd;
+    }
+}
+
+static void
+sps_resolve_stdio_handles (const sps_stdio_spec_t *stdio,
+                           sps_stdio_handles_t *handles)
+{
+  handles->in  = sps_resolve_stdio (stdio->stdin_mode,  stdio->stdin_fd,
+                                    STD_INPUT_HANDLE,  NULL);
+  handles->out = sps_resolve_stdio (stdio->stdout_mode, stdio->stdout_fd,
+                                    STD_OUTPUT_HANDLE, NULL);
+  handles->err = sps_resolve_stdio (stdio->stderr_mode, stdio->stderr_fd,
+                                    STD_ERROR_HANDLE,  handles->out);
+}
+
+static void
+sps_set_stdio_inheritable (const sps_stdio_handles_t *handles)
+{
+  SetHandleInformation (handles->in,  HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
+  SetHandleInformation (handles->out, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
+  SetHandleInformation (handles->err, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
+}
+
+/* Close the NUL handles opened by sps_resolve_stdio_handles for SILENCE
+   streams; pipe ends remain owned by the caller. */
+static void
+sps_close_silence_handles (const sps_stdio_spec_t *stdio,
+                           const sps_stdio_handles_t *handles)
+{
+  if (stdio->stdin_mode == SPS_STDIO_SILENCE)  CloseHandle (handles->in);
+  if (stdio->stdout_mode == SPS_STDIO_SILENCE) CloseHandle (handles->out);
+  if (stdio->stderr_mode == SPS_STDIO_SILENCE) CloseHandle (handles->err);
 }

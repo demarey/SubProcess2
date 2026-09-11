@@ -133,11 +133,21 @@ SPSAbstractProcess >> argsBlob [
 	"Answer the command and its arguments as a single NUL-separated blob
 	 (see SPSSpawnLibrary), matching the argv expected by the native shim."
 
-	^ String streamContents: [ :stream |
-		| addArgument |
-		addArgument := [ :aString | stream nextPutAll: aString; nextPut: Character null ].
-		addArgument value: self configuration command.
-		self configuration arguments do: addArgument ]
+	| stream |
+	stream := ByteArray new writeStream.
+	self appendArgument: self configuration command to: stream.
+	self configuration arguments
+		do: [ :aString | self appendArgument: aString to: stream ].
+	^ stream contents
+]
+
+{ #category : #private }
+SPSAbstractProcess >> appendArgument: aString to: stream [
+
+	| separator |
+	separator := Character null asciiValue.
+	stream nextPutAll: (aString encodeWith: self configuration encoding).
+	stream nextPut: separator
 ]
 
 { #category : #private }

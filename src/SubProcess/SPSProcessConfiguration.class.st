@@ -129,7 +129,7 @@ SPSProcessConfiguration >> initialize [
 	super initialize.
 	"This is just a default encoding. Especially on windows, you could need to set the correct encoding"
 	encoding := OSPlatform current isWindows
-		ifTrue: [ 'cp-850' ]
+		ifTrue: [ 'cp-1252' ]
 		ifFalse: [ 'utf8' ].
 	stdInStrategy := #pipe.
 	stdOutStrategy := #pipe.

@@ -44,6 +44,36 @@ SyncSubProcessTest >> testRunningBasicCommand [
 ]
 
 { #category : #tests }
+SyncSubProcessTest >> testRunningCommandWithNonAsciiOutputRoundTrips [
+
+	"Child echoes a non-ASCII string; it must come back present in the decoded
+	 output. Uses a platform-appropriate echo command."
+
+	| output expected |
+	expected := 'café wörld'.
+	process := self isRunningOnWindows
+		ifTrue: [
+			SPSProcessConfiguration new
+				command: 'C:\Windows\System32\cmd.exe';
+				arguments: { '/C'. 'echo '. expected };
+				encoding: 'utf8';
+				sync ]
+		ifFalse: [
+			SPSProcessConfiguration new
+				command: '/bin/echo';
+				arguments: { expected };
+				encoding: 'utf8';
+				sync ].
+
+	process run.
+
+	self assert: process isComplete.
+	self assert: process isSpawnSuccess.
+	self assert: process isExitSuccess.
+	self assert: (process stdOut includesSubstring: expected).
+]
+
+{ #category : #tests }
 SyncSubProcessTest >> testRunningCommandWithNonZeroExitCode [
 
 	self skipIfRunningOnWindows.

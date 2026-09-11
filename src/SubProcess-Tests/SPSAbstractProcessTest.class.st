@@ -41,3 +41,27 @@ SPSAbstractProcessTest >> testCStringBytesFromStopsAtFirstTerminator [
 	self assert: (process cStringBytesFrom: (ByteArray with: 65 with: 0 with: 66))
 		equals: #[65].
 ]
+
+{ #category : #tests }
+SPSAbstractProcessTest >> testDecodingNonAsciiUtf8 [
+
+	| processWithConfig bytes |
+	processWithConfig := SPSAbstractProcess new
+		configuration: (SPSProcessConfiguration new encoding: 'utf8').
+	bytes := 'café' encodeWith: 'utf8'.
+	self
+		assert: (processWithConfig decode: bytes)
+		equals: 'café'.
+]
+
+{ #category : #tests }
+SPSAbstractProcessTest >> testDecodingNonAsciiWithCp1252 [
+
+	| processWithConfig bytes |
+	processWithConfig := SPSAbstractProcess new
+		configuration: (SPSProcessConfiguration new encoding: 'cp-1252').
+	bytes := 'café' encodeWith: 'cp-1252'.
+	self
+		assert: (processWithConfig decode: bytes)
+		equals: 'café'.
+]
