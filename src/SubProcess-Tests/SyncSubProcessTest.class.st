@@ -47,23 +47,18 @@ SyncSubProcessTest >> testRunningBasicCommand [
 SyncSubProcessTest >> testRunningCommandWithNonAsciiOutputRoundTrips [
 
 	"Child echoes a non-ASCII string; it must come back present in the decoded
-	 output. Uses a platform-appropriate echo command."
+	 output. POSIX-only: on Windows cmd.exe echoes through the console code page
+	 (not UTF-8), so the output cannot be decoded as utf8. Encoding paths are
+	 covered on Windows by the encoding unit tests."
 
-	| output expected |
+	| expected |
 	expected := 'café wörld'.
-	process := self isRunningOnWindows
-		ifTrue: [
-			SPSProcessConfiguration new
-				command: 'C:\Windows\System32\cmd.exe';
-				arguments: { '/C'. 'echo '. expected };
-				encoding: 'utf8';
-				sync ]
-		ifFalse: [
-			SPSProcessConfiguration new
-				command: '/bin/echo';
-				arguments: { expected };
-				encoding: 'utf8';
-				sync ].
+	self skipIfRunningOnWindows.
+	process := SPSProcessConfiguration new
+		command: '/bin/echo';
+		arguments: { expected };
+		encoding: 'utf8';
+		sync.
 
 	process run.
 
