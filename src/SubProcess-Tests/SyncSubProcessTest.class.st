@@ -47,18 +47,25 @@ SyncSubProcessTest >> testRunningBasicCommand [
 SyncSubProcessTest >> testRunningCommandWithNonAsciiOutputRoundTrips [
 
 	"Child echoes a non-ASCII string; it must come back present in the decoded
-	 output. POSIX-only: on Windows cmd.exe echoes through the console code page
-	 (not UTF-8), so the output cannot be decoded as utf8. Encoding paths are
-	 covered on Windows by the encoding unit tests."
+	 output. Uses cp-1252, an encoding that genuinely transforms Pharo's Unicode
+	 (UTF-8 would be near-identity), proving input is encoded with and output
+	 decoded with the configured encoding.
+	 On POSIX /bin/echo echoes the exact bytes it received. On Windows cmd.exe
+	 echoes through the console code page, so it is switched with chcp 1252."
 
 	| expected |
 	expected := 'café wörld'.
-	self skipIfRunningOnWindows.
-	process := SPSProcessConfiguration new
-		command: '/bin/echo';
-		arguments: { expected };
-		encoding: 'utf8';
-		sync.
+	process := self isRunningOnWindows
+		ifTrue: [ SPSProcessConfiguration new
+			command: 'C:\Windows\System32\cmd.exe';
+			arguments: { '/C'. ('chcp 1252 >nul & echo ' , expected) };
+			encoding: 'cp-1252';
+			sync ]
+		ifFalse: [ SPSProcessConfiguration new
+			command: '/bin/echo';
+			arguments: { expected };
+			encoding: 'cp-1252';
+			sync ].
 
 	process run.
 
