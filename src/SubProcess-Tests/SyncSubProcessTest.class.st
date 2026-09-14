@@ -51,14 +51,16 @@ SyncSubProcessTest >> testRunningCommandWithNonAsciiOutputRoundTrips [
 	 (UTF-8 would be near-identity), proving input is encoded with and output
 	 decoded with the configured encoding.
 	 On POSIX /bin/echo echoes the exact bytes it received. On Windows cmd.exe
-	 echoes through the console code page, so it is switched with chcp 1252."
+	 cannot be told which bytes to emit for a redirected pipe (chcp has no
+	 effect without a console), so the child is the shim self-test binary which
+	 writes the exact cp-1252 bytes directly to its stdout handle."
 
 	| expected |
 	expected := 'café wörld'.
 	process := self isRunningOnWindows
 		ifTrue: [ SPSProcessConfiguration new
-			command: 'C:\Windows\System32\cmd.exe';
-			arguments: { '/C'. ('chcp 1252 >nul & echo ' , expected) };
+			command: 'sps_spawn_selftest.exe';
+			arguments: { '--child-cp1252' };
 			encoding: 'cp-1252';
 			sync ]
 		ifFalse: [ SPSProcessConfiguration new

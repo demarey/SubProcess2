@@ -252,6 +252,28 @@ run_child_write (void)
   return 0;
 }
 
+/* Child mode: write the exact cp-1252 bytes of "café wörld\n" to stdout and
+ * exit. The byte sequence is written directly to the real standard handle with
+ * sps_write, bypassing any console/process code page, so a parent decoding the
+ * output with cp-1252 recovers the string verbatim. "café wörld\n" is
+ * "caf" 0xE9 " w" 0xF6 "rld\n" in cp-1252. */
+static int
+run_child_cp1252 (void)
+{
+  static const unsigned char cp1252_bytes[] = {
+    0x63, 0x61, 0x66, 0xE9, 0x20, 0x77, 0xF6, 0x72, 0x6C, 0x64, 0x0A
+  };
+#if defined(_WIN32)
+  sps_fd_t stdout_fd = (sps_fd_t) GetStdHandle (STD_OUTPUT_HANDLE);
+#else
+  sps_fd_t stdout_fd = 1;
+#endif
+  sps_write (stdout_fd, (const char *) cp1252_bytes,
+             (sizeof cp1252_bytes) / (sizeof cp1252_bytes[0]));
+  sps_close (stdout_fd);
+  return 0;
+}
+
 /* Build a NUL-separated args blob ("self_path\0--child-echo\0...") for the
  * given child mode, into out_blob (out_len bytes available). Answer the blob
  * byte length (excluding the trailing NUL is included as argv terminator). */
@@ -390,6 +412,8 @@ main (int argc, char **argv)
     return run_child_echo ();
   if (argc > 1 && strcmp (argv[1], "--child-write") == 0)
     return run_child_write ();
+  if (argc > 1 && strcmp (argv[1], "--child-cp1252") == 0)
+    return run_child_cp1252 ();
   result = sps_selftest_run_parent (argv[0]);
   if (result != 0)
     return result;
