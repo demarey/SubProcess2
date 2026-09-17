@@ -1,10 +1,15 @@
 "
-Common behaviour for synchroneous and asynchroneous child OS process spawn.
-I use `SPSProcessConfiguration` to configure myself.
+I am the abstract root of the subprocess hierarchy. I gather the common
+behaviour for synchroneous and asynchroneous child OS process spawn, and I act
+as the public entry point: `SubProcess run: '...'` builds a configuration and
+runs it synchroneously.
 
+My concrete subclasses are SPSSyncProcess and SPSAsyncProcess.
+
+I use `SPSProcessConfiguration` to configure myself.
 "
 Class {
-	#name : #SPSAbstractProcess,
+	#name : #SubProcess,
 	#superclass : #Object,
 	#traits : 'SPSTLibrary',
 	#classTraits : 'SPSTLibrary classTrait',
@@ -17,7 +22,7 @@ Class {
 }
 
 { #category : #constants }
-SPSAbstractProcess class >> subProcessDomain [
+SubProcess class >> subProcessDomain [
 
 	"Domain string attached to SPSError instances raised by this package."
 
@@ -25,7 +30,7 @@ SPSAbstractProcess class >> subProcessDomain [
 ]
 
 { #category : #constants }
-SPSAbstractProcess class >> nullByte [
+SubProcess class >> nullByte [
 
 	"The byte value terminating a C string."
 
@@ -33,7 +38,7 @@ SPSAbstractProcess class >> nullByte [
 ]
 
 { #category : #constants }
-SPSAbstractProcess class >> spawnErrorBufferSize [
+SubProcess class >> spawnErrorBufferSize [
 
 	"Size in bytes of the buffer receiving a NUL-terminated error message when
 	 a child fails to spawn."
@@ -42,7 +47,7 @@ SPSAbstractProcess class >> spawnErrorBufferSize [
 ]
 
 { #category : #constants }
-SPSAbstractProcess class >> outputReadBufferSize [
+SubProcess class >> outputReadBufferSize [
 
 	"Size in bytes read from a child pipe descriptor in a single read call."
 
@@ -50,39 +55,64 @@ SPSAbstractProcess class >> outputReadBufferSize [
 ]
 
 { #category : #'instance creation' }
-SPSAbstractProcess class >> withConfiguration: aSPSProcessConfiguration [
+SubProcess class >> withConfiguration: aSPSProcessConfiguration [
 
 	^ self new
 		configuration: aSPSProcessConfiguration
 ]
 
+{ #category : #'api - running' }
+SubProcess class >> run: aCommand [
+
+	^ self
+		runProcessForConfiguration: (SPSProcessConfiguration new command: aCommand)
+]
+
+{ #category : #'api - running' }
+SubProcess class >> run: aCommand arguments: aCollection [
+
+	^ self
+		runProcessForConfiguration: (SPSProcessConfiguration new
+			command: aCommand;
+			arguments: aCollection)
+]
+
+{ #category : #'private - running' }
+SubProcess class >> runProcessForConfiguration: aSPSProcessConfiguration [
+
+	| process |
+	process := aSPSProcessConfiguration sync.
+	process run.
+	^ process
+]
+
 { #category : #'api - accessing' }
-SPSAbstractProcess >> configuration [
+SubProcess >> configuration [
 
 	^ configuration
 ]
 
 { #category : #'api - configuring' }
-SPSAbstractProcess >> configuration: aSPSProcessConfiguration [ 
+SubProcess >> configuration: aSPSProcessConfiguration [ 
 	
 	configuration := aSPSProcessConfiguration
 ]
 
 { #category : #'api - accessing' }
-SPSAbstractProcess >> exitCode [
+SubProcess >> exitCode [
 
 	self subclassResponsibility
 ]
 
 { #category : #initialization }
-SPSAbstractProcess >> initialize [
+SubProcess >> initialize [
 
 	super initialize.
 	isComplete := false.
 ]
 
 { #category : #'api - testing' }
-SPSAbstractProcess >> isComplete [
+SubProcess >> isComplete [
 	
 	"True if spawned child program has completed its execution, whatever the reason.
 	 Once true, the child program is not running anymore: it either exited by itself
@@ -92,7 +122,7 @@ SPSAbstractProcess >> isComplete [
 ]
 
 { #category : #'api - testing' }
-SPSAbstractProcess >> isExitSuccess [
+SubProcess >> isExitSuccess [
 	
 	"True if the child process has completed with a success exit status (exit code 0)."
 	
@@ -100,14 +130,14 @@ SPSAbstractProcess >> isExitSuccess [
 ]
 
 { #category : #'api - testing' }
-SPSAbstractProcess >> isSpawnSuccess [
+SubProcess >> isSpawnSuccess [
 	
 	"True if the child process was spawned/launched without error."
 	self subclassResponsibility
 ]
 
 { #category : #'private - spawning' }
-SPSAbstractProcess >> isSpawnFailure: aSpawnResult [
+SubProcess >> isSpawnFailure: aSpawnResult [
 
 	"spawn answers the process token on success and a negated error number on
 	 failure, so any value at or below zero denotes a failed spawn."
@@ -116,19 +146,19 @@ SPSAbstractProcess >> isSpawnFailure: aSpawnResult [
 ]
 
 { #category : #'api - running' }
-SPSAbstractProcess >> run [
+SubProcess >> run [
 	
 	self subclassResponsibility
 ]
 
 { #category : #'api - running' }
-SPSAbstractProcess >> terminate [
+SubProcess >> terminate [
 	
 	self subclassResponsibility
 ]
 
 { #category : #private }
-SPSAbstractProcess >> argsBlob [
+SubProcess >> argsBlob [
 
 	"Answer the command and its arguments as a single NUL-separated blob
 	 (see SPSSpawnLibrary), matching the argv expected by the native shim."
@@ -142,7 +172,7 @@ SPSAbstractProcess >> argsBlob [
 ]
 
 { #category : #private }
-SPSAbstractProcess >> appendArgument: aString to: stream [
+SubProcess >> appendArgument: aString to: stream [
 
 	| separator |
 	separator := Character null asciiValue.
@@ -151,7 +181,7 @@ SPSAbstractProcess >> appendArgument: aString to: stream [
 ]
 
 { #category : #private }
-SPSAbstractProcess >> cStringBytesFrom: aByteArray [
+SubProcess >> cStringBytesFrom: aByteArray [
 
 	"Answer the bytes of a NUL-terminated C string stored in aByteArray, up to
 	 but excluding the first NUL."
@@ -163,7 +193,7 @@ SPSAbstractProcess >> cStringBytesFrom: aByteArray [
 ]
 
 { #category : #private }
-SPSAbstractProcess >> decode: aByteArrayOrString [
+SubProcess >> decode: aByteArrayOrString [
 
 	"Decode raw bytes produced by a child process into a Pharo String using the
 	 configured encoding. Strings are returned untouched."
@@ -174,7 +204,7 @@ SPSAbstractProcess >> decode: aByteArrayOrString [
 ]
 
 { #category : #private }
-SPSAbstractProcess >> newOutputReadBuffer [
+SubProcess >> newOutputReadBuffer [
 
 	"Answer a fresh byte buffer used for a single read of a child pipe."
 
@@ -182,7 +212,7 @@ SPSAbstractProcess >> newOutputReadBuffer [
 ]
 
 { #category : #'private - spawning' }
-SPSAbstractProcess >> spawnProcess [
+SubProcess >> spawnProcess [
 
 	"Template method that pipes and spawns a child OS process. It creates the
 	 three stdio pipes, invokes the native spawn shim and dispatches to the
@@ -219,7 +249,7 @@ SPSAbstractProcess >> spawnProcess [
 ]
 
 { #category : #'private - spawning' }
-SPSAbstractProcess >> parentEndOf: aPipeEndsOrNil [
+SubProcess >> parentEndOf: aPipeEndsOrNil [
 
 	"Answer the parent descriptor of aPipeEndsOrNil, or nil when there is no
 	 pipe for that stream (silence / inherit / merge)."
@@ -228,7 +258,7 @@ SPSAbstractProcess >> parentEndOf: aPipeEndsOrNil [
 ]
 
 { #category : #'private - spawning' }
-SPSAbstractProcess >> invokeSpawnWithPipes: pipes args: argsBlob cwd: cwd errBuf: errBuf [
+SubProcess >> invokeSpawnWithPipes: pipes args: argsBlob cwd: cwd errBuf: errBuf [
 
 	"Invoke the native spawn shim with the stdio spec answered by SPSStdioPipes."
 
@@ -242,13 +272,13 @@ SPSAbstractProcess >> invokeSpawnWithPipes: pipes args: argsBlob cwd: cwd errBuf
 ]
 
 { #category : #'private - spawning' }
-SPSAbstractProcess >> handleSpawnError: aByteArrayOrString code: anInteger [
+SubProcess >> handleSpawnError: aByteArrayOrString code: anInteger [
 
 	self subclassResponsibility
 ]
 
 { #category : #'private - spawning' }
-SPSAbstractProcess >> handleSpawnSuccess: aProcessToken parentStdout: aProcessParentStdout parentStderr: aProcessParentStderr [
+SubProcess >> handleSpawnSuccess: aProcessToken parentStdout: aProcessParentStdout parentStderr: aProcessParentStderr [
 
 	"Template method: wire the process handle and make the parent stdout/stderr
 	 descriptors non-blocking (when present; silenced / inherited / merged
@@ -262,7 +292,7 @@ SPSAbstractProcess >> handleSpawnSuccess: aProcessToken parentStdout: aProcessPa
 ]
 
 { #category : #'private - spawning' }
-SPSAbstractProcess >> processSpawnedWithParentStdout: parentStdout parentStderr: parentStderr [
+SubProcess >> processSpawnedWithParentStdout: parentStdout parentStderr: parentStderr [
 
 	self subclassResponsibility
 ]

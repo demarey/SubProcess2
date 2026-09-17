@@ -5,8 +5,8 @@ Execution will be blocked until the child process completion.
 I use SPSProcessConfiguration to configure myself.
 "
 Class {
-	#name : #SPSProcess,
-	#superclass : #SPSAbstractProcess,
+	#name : #SPSSyncProcess,
+	#superclass : #SubProcess,
 	#instVars : [
 		'stdOut',
 		'stdErr',
@@ -17,7 +17,7 @@ Class {
 }
 
 { #category : #constants }
-SPSProcess class >> readPollDelay [
+SPSSyncProcess class >> readPollDelay [
 
 	"Delay while yielding between non-blocking reads of a child pipe."
 
@@ -25,13 +25,13 @@ SPSProcess class >> readPollDelay [
 ]
 
 { #category : #'api - accessing' }
-SPSProcess >> error [
+SPSSyncProcess >> error [
 
 	^ error
 ]
 
 { #category : #private }
-SPSProcess >> errorMessage: message errorCode: errorCode domainString: domainString [
+SPSSyncProcess >> errorMessage: message errorCode: errorCode domainString: domainString [
 
 	error := SPSError
 		message: (self decode: message)
@@ -40,19 +40,19 @@ SPSProcess >> errorMessage: message errorCode: errorCode domainString: domainStr
 ]
 
 { #category : #'api - accessing' }
-SPSProcess >> exitCode [
+SPSSyncProcess >> exitCode [
 
 	^ processHandle ifNotNil: [ processHandle exitCode ]
 ]
 
 { #category : #'api - testing' }
-SPSProcess >> isSpawnSuccess [
+SPSSyncProcess >> isSpawnSuccess [
 
 	^ isSpawnSuccess
 ]
 
 { #category : #'api - running' }
-SPSProcess >> run [
+SPSSyncProcess >> run [
 
 	self spawnProcess.
 	isComplete := true.
@@ -60,37 +60,37 @@ SPSProcess >> run [
 ]
 
 { #category : #'api - accessing' }
-SPSProcess >> stdErr [
+SPSSyncProcess >> stdErr [
 
 	^ stdErr ifNil: [ '' ]
 ]
 
 { #category : #private }
-SPSProcess >> stdErr: aByteArray [
+SPSSyncProcess >> stdErr: aByteArray [
 
 	stdErr := aByteArray ifNotNil: [ self decode: aByteArray ]
 ]
 
 { #category : #'api - accessing' }
-SPSProcess >> stdOut [
+SPSSyncProcess >> stdOut [
 
 	^ stdOut ifNil: [ '' ]
 ]
 
 { #category : #private }
-SPSProcess >> stdOut: aByteArray [
+SPSSyncProcess >> stdOut: aByteArray [
 
 	stdOut := aByteArray ifNotNil: [ self decode: aByteArray ]
 ]
 
 { #category : #private }
-SPSProcess >> isSpawnSuccess: aBoolean [
+SPSSyncProcess >> isSpawnSuccess: aBoolean [
 
 	isSpawnSuccess := aBoolean
 ]
 
 { #category : #'api - running' }
-SPSProcess >> terminate [
+SPSSyncProcess >> terminate [
 
 	"Kill the child process if it is still running. No-op once complete, so it
 	 can safely be called in a tearDown after #run returned."
@@ -100,7 +100,7 @@ SPSProcess >> terminate [
 ]
 
 { #category : #'private - spawning' }
-SPSProcess >> handleSpawnError: aByteArrayOrString code: anInteger [
+SPSSyncProcess >> handleSpawnError: aByteArrayOrString code: anInteger [
 
 	self isSpawnSuccess: false.
 	self
@@ -110,7 +110,7 @@ SPSProcess >> handleSpawnError: aByteArrayOrString code: anInteger [
 ]
 
 { #category : #'private - spawning' }
-SPSProcess >> processSpawnedWithParentStdout: parentStdout parentStderr: parentStderr [
+SPSSyncProcess >> processSpawnedWithParentStdout: parentStdout parentStderr: parentStderr [
 
 	self isSpawnSuccess: true.
 	self stdOut: (self readToEndFromFd: parentStdout).
@@ -121,7 +121,7 @@ SPSProcess >> processSpawnedWithParentStdout: parentStdout parentStderr: parentS
 ]
 
 { #category : #private }
-SPSProcess >> readToEndFromFd: aFd [
+SPSSyncProcess >> readToEndFromFd: aFd [
 
 	"Read a non-blocking pipe descriptor until EOF (the child has closed its
 	 end, i.e. exited), collecting the raw bytes. A negative read result means

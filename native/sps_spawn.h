@@ -105,7 +105,7 @@ int sps_close (sps_fd_t fd);
  * is non-zero, blocks until the child exits; otherwise returns immediately.
  *
  * Answers 1 once the child has exited (writing a POSIX-like wait status into
- * *out_status that SPSAbstractProcess can decode with WIFEXITED/WEXITSTATUS
+ * *out_status that SubProcess can decode with WIFEXITED/WEXITSTATUS
  * rules), 0 while the child is still running (poll mode), and -1 on error or
  * when the token is no longer valid (e.g. already reaped).
  *

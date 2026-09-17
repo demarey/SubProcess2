@@ -17,7 +17,7 @@ I use `SPSProcessConfiguration` to configure myself.
 "
 Class {
 	#name : #SPSAsyncProcess,
-	#superclass : #SPSAbstractProcess,
+	#superclass : #SubProcess,
 	#instVars : [
 		'completionSemaphore',
 		'completionBlock',

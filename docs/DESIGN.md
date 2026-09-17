@@ -18,9 +18,9 @@ The package is organised in three layers:
 │                             command+args, cwd, encoding, collect)   │
 │        │                       │                                     │
 │        ▼                       ▼                                     │
-│  SPSProcess (sync)      SPSAsyncProcess (async)                      │
-│        └────────────── SPSAbstractProcess ──────────────┘            │
-│                        (shared pipe/args/exit helpers)               │
+│  SPSSyncProcess         SPSAsyncProcess (async)                      │
+│        └────────────── SubProcess ────────────────┘                  │
+│                        (shared pipe/args/exit helpers + run: facade) │
 │                                │                                     │
 │        SPSPipeReader · SPSPipeWriter (line split + collect)          │
 │                                │                                     │
@@ -79,9 +79,9 @@ lives in Smalltalk:
   the caller's responsibility, not the shim's, and is done in `spawnProcess` /
   `spawn`.
 
-## Sync path — `SPSProcess`
+## Sync path — `SPSSyncProcess`
 
-`SPSProcess run` blocks until the child exits:
+`SPSSyncProcess run` blocks until the child exits:
 
 1. Create the three pipes, build the argv blob and cwd (`workingDirectory
    fullName`, not `asString`).

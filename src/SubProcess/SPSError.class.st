@@ -1,5 +1,5 @@
 "
-Error that can be returned when SPSProcess run fails.
+Error that can be returned when SubProcess run fails.
 "
 Class {
 	#name : #SPSError,

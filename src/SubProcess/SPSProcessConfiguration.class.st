@@ -198,7 +198,7 @@ SPSProcessConfiguration >> assertStdOutIsPiped [
 { #category : #'api - running' }
 SPSProcessConfiguration >> sync [
 
-	^  SPSProcess withConfiguration: self
+	^  SPSSyncProcess withConfiguration: self
 ]
 
 { #category : #'api - configuring' }

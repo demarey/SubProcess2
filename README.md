@@ -6,7 +6,19 @@ SubProcess offers a high-level API, OS-agnostic API to run easily processes from
 
 ## Examples
 
-### Run a simple command
+### Run a simple command (one-liner)
+`SubProcess run:` builds a configuration, runs it synchronously and returns the
+process, so its output and status are directly available:
+```smalltalk
+process := SubProcess run: '/bin/ls'.
+out := process stdOut.
+```
+You can pass arguments too:
+```smalltalk
+process := SubProcess run: '/bin/ls' arguments: #('/etc').
+```
+
+### Run a simple command (fluent configuration)
 ```smalltalk
 process := SPSProcessConfiguration new
   command: '/bin/ls';
