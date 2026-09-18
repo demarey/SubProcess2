@@ -7,7 +7,7 @@ Class {
 { #category : #tests }
 SyncSubProcessTest >> testRunningANonExistingCommand [
 	
-	process := self newProcessConfigurationForNonExistingCommand sync.
+	process := self newProcessConfigurationForNonExistingCommand asSyncProcess.
 	
 	self
 		should: [ process run ]
@@ -31,7 +31,7 @@ SyncSubProcessTest >> testRunningBasicCommand [
 	self skipIfRunningOnWindows.
 	process := SPSProcessConfiguration new
 		command: '/bin/ls';
-		sync.
+		asSyncProcess.
 	
 	process run.
 	
@@ -62,12 +62,12 @@ SyncSubProcessTest >> testRunningCommandWithNonAsciiOutputRoundTrips [
 			command: 'sps_spawn_selftest.exe';
 			arguments: { '--child-cp1252' };
 			encoding: 'cp-1252';
-			sync ]
+			asSyncProcess ]
 		ifFalse: [ SPSProcessConfiguration new
 			command: '/bin/echo';
 			arguments: { expected };
 			encoding: 'cp-1252';
-			sync ].
+			asSyncProcess ].
 
 	process run.
 
@@ -84,7 +84,7 @@ SyncSubProcessTest >> testRunningCommandWithNonZeroExitCode [
 	process := SPSProcessConfiguration new
 		command: '/bin/sh';
 		arguments: { '-c'. ('exit {1}' format: { self class nonZeroExitCode }) };
-		sync.
+		asSyncProcess.
 	
 	process run.
 	
@@ -101,7 +101,7 @@ SyncSubProcessTest >> testRunningCommandWithNonZeroExitCodeOnWindows [
 	process := SPSProcessConfiguration new
 		windowsShellCommand;
 		addArgument: ('exit {1}' format: { self class nonZeroExitCode });
-		sync.
+		asSyncProcess.
 	
 	process run.
 	
@@ -119,7 +119,7 @@ SyncSubProcessTest >> testRunningBasicCommandOnWindows [
 	self isRunningOnWindows ifFalse: [ self skip: 'skipping windows test'].
 	process := SPSProcessConfiguration new
 		command: 'C:\Windows\System32\systeminfo.exe';
-		sync.
+		asSyncProcess.
 	
 	process run.
 	
@@ -140,7 +140,7 @@ SyncSubProcessTest >> testRunningSilencedCommandProducesNoOutput [
 		command: '/bin/echo';
 		arguments: { 'hello' };
 		silenceStdout;
-		sync.
+		asSyncProcess.
 
 	process run.
 
@@ -161,7 +161,7 @@ SyncSubProcessTest >> testRunningCommandWithMergedStderrCapturesBothOnStdout [
 		mergeStandardError;
 		command: '/bin/sh';
 		arguments: { '-c'. 'echo to-stdout; echo to-stderr 1>&2' };
-		sync.
+		asSyncProcess.
 
 	process run.
 
@@ -191,7 +191,7 @@ SyncSubProcessTest >> testRunningCommandWithInheritedStdout [
 				command: '/bin/sh';
 				arguments: { '-c'. 'echo inherited-marker' };
 				inheritStdout;
-				sync.
+				asSyncProcess.
 
 			process run ].
 
@@ -214,7 +214,7 @@ SyncSubProcessTest >> testRunningCommandInGivenWorkingDirectory [
 		ifTrue: [ config
 						windowsShellCommand;
 						addArgument: 'dir' ]	.
-	process := config sync.
+	process := config asSyncProcess.
 	
 	process run.
 	

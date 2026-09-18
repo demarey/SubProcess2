@@ -64,8 +64,8 @@ SPSAsyncProcess >> announceCompleted [
 SPSAsyncProcess >> completeWithExitCode: anExitCode [
 
 	self drainOutputToEof.
-	completionSemaphore signal.
 	isComplete := true.
+	completionSemaphore signal.
 	self announceCompleted
 ]
 
@@ -93,7 +93,7 @@ SPSAsyncProcess >> exitCode [
 ]
 
 { #category : #'api - running' }
-SPSAsyncProcess >> run [
+SPSAsyncProcess >> start [
 
 	stopRequested := false.
 	completionSemaphore := Semaphore new.
@@ -102,16 +102,36 @@ SPSAsyncProcess >> run [
 ]
 
 { #category : #'api - running' }
-SPSAsyncProcess >> runAndWaitTimeOut: aDuration [
+SPSAsyncProcess >> wait [
 
-	"Run the process and wait at most aDuration for its completion.
-	 Answer true if it timed out, false if it completed within the delay."
+	"Block until the child process completes, then answer self. The process must
+	 already have been started (see #start / SubProcess >> start:)."
+
+	self assertIsSpawned.
+	self completionSemaphore wait.
+	^ self
+]
+
+{ #category : #'api - running' }
+SPSAsyncProcess >> waitFor: aDuration [
+
+	"Wait at most aDuration for the process to complete. The process must already
+	 have been started (see #start / SubProcess >> start:). Answer true if it
+	 timed out, false if it completed within the delay; on timeout the process is
+	 terminated."
 
 	| timedOut |
-	self run.
+	self assertIsSpawned.
 	timedOut := self completionSemaphore waitTimeoutMilliseconds: aDuration asMilliSeconds.
 	timedOut ifTrue: [ self terminate ].
 	^ timedOut
+]
+
+{ #category : #'private - asserting' }
+SPSAsyncProcess >> assertIsSpawned [
+
+	self isSpawnSuccess
+		ifFalse: [ SPSError new signal: 'Process not started' ]
 ]
 
 { #category : #'api - accessing' }

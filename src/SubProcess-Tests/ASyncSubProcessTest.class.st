@@ -131,9 +131,9 @@ ASyncSubProcessTest >> testAutoCollectedOutput [
 
 	process := (self newProcessConfigurationWithShellCommand: 'echo hello')
 		collectsOutput;
-		async.
+		asAsyncProcess.
 	
-	process run.
+	process start.
 	
 	self assert: (self waitForCompletionOf: process).
 	self assert: process isComplete.
@@ -149,9 +149,9 @@ ASyncSubProcessTest >> testAutoCollectedLargeOutput [
 	self skipIfRunningOnWindows.
 	process := (self newProcessConfigurationWithShellCommand: ('seq 1 {1}' format: { self class largeOutputLineCount }))
 		collectsOutput;
-		async.
+		asAsyncProcess.
 
-	process run.
+	process start.
 
 	self assert: (self waitForCompletionOf: process).
 	self assert: process isComplete.
@@ -164,9 +164,9 @@ ASyncSubProcessTest >> testAutoCollectedLargeOutput [
 { #category : #tests }
 ASyncSubProcessTest >> testCompletion [
 	
-	process := (self newProcessConfigurationWithShellCommand: ('exit {1}' format: { self class nonZeroExitCode })) async.
+	process := (self newProcessConfigurationWithShellCommand: ('exit {1}' format: { self class nonZeroExitCode })) asAsyncProcess.
 	
-	process run.
+	process start.
 	
 	self assert: (self waitForCompletionOf: process).
 	self assert: process isComplete.
@@ -180,12 +180,12 @@ ASyncSubProcessTest >> testCompletionCallback [
 	
 	completed := false.
 	exit := nil.
-	process := (self newProcessConfigurationWithShellCommand: ('exit {1}' format: { self class successExitCode })) async.
+	process := (self newProcessConfigurationWithShellCommand: ('exit {1}' format: { self class successExitCode })) asAsyncProcess.
 	process whenCompletedDo: [ :aProcess |
 		completed := true.
 		exit := aProcess exitCode ].
 	
-	process run.
+	process start.
 	
 	self assert: (self waitForCompletionOf: process).
 	self assert: completed.
@@ -203,9 +203,9 @@ ASyncSubProcessTest >> testOutputWithoutNewlinesLargerThanReadBuffer [
 	self skipIfRunningOnWindows.
 	process := (self newProcessConfigurationWritingBytesWithoutNewlines: payloadBytes)
 		collectsOutput;
-		async.
+		asAsyncProcess.
 
-	process run.
+	process start.
 
 	self assert: (self waitForCompletionOf: process).
 	self assert: process isComplete.
@@ -221,9 +221,9 @@ ASyncSubProcessTest >> testOutputWithoutNewlinesLargerThanReadBuffer [
 ASyncSubProcessTest >> testRunningBasicCommand [
 	| out |
 	
-	process := self newProcessConfigurationForDirectoryListing async.
+	process := self newProcessConfigurationForDirectoryListing asAsyncProcess.
 	
-	process run.
+	process start.
 	
 	out := process stdOutChannel readLine.
 	self deny: out isEmpty.
@@ -235,10 +235,10 @@ ASyncSubProcessTest >> testStreamingOutputCallback [
 	| lines |
 
 	lines := OrderedCollection new.
-	process := (self newProcessConfigurationProducingLines: self class streamingLineCount) async.
+	process := (self newProcessConfigurationProducingLines: self class streamingLineCount) asAsyncProcess.
 	process outputLineDo: [ :aLine | lines add: aLine ].
 
-	process run.
+	process start.
 
 	self assert: (self waitForCompletionOf: process).
 	self assert: (self waitFor: [ lines size >= self class streamingLineCount ] within: self class streamingWaitTime).
@@ -250,9 +250,9 @@ ASyncSubProcessTest >> testRunningSilencedCommandProducesNoOutput [
 
 	process := (self newProcessConfigurationWithShellCommand: 'echo hello')
 		silenceStdout;
-		async.
+		asAsyncProcess.
 
-	process run.
+	process start.
 
 	self assert: (self waitForCompletionOf: process).
 	self assert: process isComplete.
@@ -268,9 +268,9 @@ ASyncSubProcessTest >> testRunningCommandWithMergedStderr [
 	process := (self newProcessConfigurationWithShellCommand: 'echo to-stdout; echo to-stderr 1>&2')
 		collectsOutput;
 		mergeStandardError;
-		async.
+		asAsyncProcess.
 
-	process run.
+	process start.
 
 	self assert: (self waitForCompletionOf: process).
 	self assert: process isComplete.
@@ -286,7 +286,7 @@ ASyncSubProcessTest >> testRunningCommandWithInheritedStdout [
 
 	"Verify #inheritStdout on the async path: the child writes its standard
 	 output directly onto the caller's file descriptor 1. We temporarily
-	 redirect fd 1 to a scratch file, run the child, restore fd 1, then read
+	 redirect fd 1 to a scratch file, start the child, restore fd 1, then read
 	 the marker back from the file."
 
 	| contents tempFile |
@@ -297,9 +297,9 @@ ASyncSubProcessTest >> testRunningCommandWithInheritedStdout [
 		during: [
 			process := (self newProcessConfigurationWithShellCommand: 'echo inherited-marker')
 				inheritStdout;
-				async.
+				asAsyncProcess.
 
-			process run.
+			process start.
 			self assert: (self waitForCompletionOf: process) ].
 
 	self assert: process isComplete.
@@ -311,9 +311,9 @@ ASyncSubProcessTest >> testRunningCommandWithInheritedStdout [
 { #category : #tests }
 ASyncSubProcessTest >> testTerminate [
 
-	process := self newProcessConfigurationForLongRunningProcess async.
+	process := self newProcessConfigurationForLongRunningProcess asAsyncProcess.
 	
-	process run.
+	process start.
 	self deny: process isComplete.
 	process terminate.
 	
@@ -324,9 +324,10 @@ ASyncSubProcessTest >> testTerminate [
 { #category : #tests }
 ASyncSubProcessTest >> testTimeOut [
 
-	process := self newProcessConfigurationForLongRunningProcess async.
+	process := self newProcessConfigurationForLongRunningProcess asAsyncProcess.
+	process start.
 	
-	self assert: (process runAndWaitTimeOut: self class completionTimeout).
+	self assert: (process waitFor: self class completionTimeout).
 	self assert: process isComplete.
 	self assert: process wasTerminated.
 ]
@@ -334,14 +335,14 @@ ASyncSubProcessTest >> testTimeOut [
 { #category : #tests }
 ASyncSubProcessTest >> testRunningANonExistingCommand [
 
-	"Spawning a non-existing command raises SPSError synchronously from #run
+	"Spawning a non-existing command raises SPSError synchronously from #start
 	 (the async spawn failure path signals it rather than setting a flag)."
 
 	self skipIfRunningOnWindows.
-	process := self newProcessConfigurationForNonExistingCommand async.
+	process := self newProcessConfigurationForNonExistingCommand asAsyncProcess.
 
 	self
-		should: [ process run ]
+		should: [ process start ]
 		raise: SPSError
 		withExceptionDo: [ :error |
 			self

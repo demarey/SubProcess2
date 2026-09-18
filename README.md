@@ -22,14 +22,14 @@ process := SubProcess run: '/bin/ls' arguments: #('/etc').
 ```smalltalk
 process := SPSProcessConfiguration new
   command: '/bin/ls';
-  sync.
+  asSyncProcess.
 process run.
  ```
   
 ```smalltalk
 process := SPSProcessConfiguration new
   command: 'C:\Windows\System32\systeminfo.exe';
-  sync.
+  asSyncProcess.
 process run.
 ```
   
@@ -37,7 +37,7 @@ process run.
 ```smalltalk
 process := SPSProcessConfiguration new
   command: '/bin/ls';
-  sync.
+  asSyncProcess.
 process run.
   
 out := process stdOut.
@@ -49,7 +49,7 @@ err := process stdErr.
 process := SPSProcessConfiguration new
   workingDirectory: '/etc';
   command: '/bin/ls';
-  sync.
+  asSyncProcess.
 	
 process run.
 ```
@@ -59,7 +59,7 @@ process run.
 process := SPSProcessConfiguration new
   command: '/bin/ls';
   arguments: #('/etc');
-  sync.
+  asSyncProcess.
 	
 process run.
 ```
@@ -70,23 +70,35 @@ process := SPSProcessConfiguration new
   workingDirectory: 'C:\';
   windowsShellCommand;
   addArgument: 'dir';
-  sync.
+  asSyncProcess.
   
 process run.
 ```
 
 ## Running asynchroneous processes
 
-`async` processes return immediately after the child is spawned: execution resumes without
+`start` processes return immediately after the child is spawned: execution resumes without
 waiting for the child to terminate. This is handy to run long-running commands or several
-processes in parallel.
+processes in parallel. You later block on `wait` (until completion) or `waitFor:` (with a
+timeout).
 
-### Run a command asynchroneously
+### Start a command asynchroneously with the facade
+`SubProcess start:` launches the child and returns the running process at once. Output is
+auto-collected by default, so `stdOut` / `stdErr` are available after `wait`:
+```smalltalk
+process := SubProcess start: '/bin/sh' arguments: { '-c'. 'seq 1 1000' }.
+process whenCompletedDo: [ :aProcess |
+  Transcript show: 'exit code: ', aProcess exitCode asString; cr ].
+process wait.                          "block until done"
+out := process stdOut.
+```
+
+### Start a command asynchroneously (fluent configuration)
 ```smalltalk
 process := SPSProcessConfiguration new
   command: '/bin/ls';
-  async.
-process run.
+  asAsyncProcess.
+process start.
 ```
 
 ### Know when the process completed
@@ -95,10 +107,10 @@ Register a callback invoked when the child process exits:
 process := SPSProcessConfiguration new
   command: '/bin/sh';
   arguments: #('-c' 'sleep 2');
-  async.
+  asAsyncProcess.
 process whenCompletedDo: [ :aProcess |
   Transcript show: 'exit code: ', aProcess exitCode asString; cr ].
-process run.
+process start.
 ```
 
 ### Reading the output with streams
@@ -106,8 +118,8 @@ By default no output is captured. Read directly from the process channels (block
 ```smalltalk
 process := SPSProcessConfiguration new
   command: '/bin/ls';
-  async.
-process run.
+  asAsyncProcess.
+process start.
 out := process stdOutChannel readLine.
 ```
 WARNING: if the child produces a lot of output, nothing reads the pipes: they fill up, the child
@@ -121,57 +133,59 @@ whole output in memory. Ideal for large or infinite output:
 process := SPSProcessConfiguration new
   command: '/bin/sh';
   arguments: #('-c' 'seq 1 1000');
-  async.
+  asAsyncProcess.
 process outputLineDo: [ :aLine | Transcript show: aLine; cr ].
-process run.
+process start.
 ```
 
 ### Auto-collecting the output
 By default no output is captured. Call `collectsOutput` on the configuration to capture stdout
-and stderr line-by-line in the background. The collected text is then available on `stdOut` /
-`stdErr`. When the process completes, the output listeners are drained to EOF before completion
-is announced, so the collected output is complete:
+and stderr line-by-line in the background. (The `SubProcess start:` facade does this for you.)
+The collected text is then available on `stdOut` / `stdErr`. When the process completes, the
+output listeners are drained to EOF before completion is announced, so the collected output is
+complete:
 ```smalltalk
 process := SPSProcessConfiguration new
   command: '/bin/sh';
   arguments: #('-c' 'echo hello');
   collectsOutput;
-  async.
-process run.
-process runAndWaitTimeOut: 2 seconds.
+  asAsyncProcess.
+process start.
+process waitFor: 2 seconds.
 out := process stdOut.   "a String containing 'hello'"
 ```
 
 ### Waiting with a timeout
-`runAndWaitTimeOut:` runs the process, waits up to the given duration for completion, and kills
-the child if it did not finish in time. It answers `true` on timeout, `false` otherwise:
+`wait` and `waitFor:` wait on an already-**started** process; they never launch one. `waitFor:`
+waits up to the given duration for completion and kills the child if it did not finish in time.
+It answers `true` on timeout, `false` otherwise. Calling them on a process that was not started
+raises `SPSError`:
 ```smalltalk
 process := SPSProcessConfiguration new
   command: '/bin/sleep';
   arguments: #('30');
-  async.
-self assert: (process runAndWaitTimeOut: 1 second).
+  asAsyncProcess.
+process start.
+self assert: (process waitFor: 1 second).
 ```
 
 ### Terminating a running process
 ```smalltalk
-process := SPSProcessConfiguration new
-  command: '/bin/sleep';
-  arguments: #('30');
-  async.
-process run.
+process := SubProcess start: '/bin/sleep' arguments: { '30' }.
 process terminate.
 ```
 
+
 ## How asynchroneous processes work internally
 
-An `async` process spawns the child and returns immediately; a few background elements then
-orchestrate its lifecycle. Concretely, when a process is `run`, the following happen:
+An async process (`asAsyncProcess`, launched with `start`) spawns the child and returns
+immediately; a few background elements then orchestrate its lifecycle. Concretely, when a process
+is `start`ed, the following happen:
 
-1. **Main (caller) thread** — `run` spawns the child via `g_spawn_async_with_pipes` with
+1. **Main (caller) thread** — `start` spawns the child via `g_spawn_async_with_pipes` with
    `G_SPAWN_DO_NOT_REAP_CHILD` (so our watch — and not GLib — reaps the child), then sets up the
    output reading and the completion watch, and returns at once. The caller never blocks unless
-   it explicitly calls `runAndWaitTimeOut:` or reads a channel.
+   it explicitly calls `wait`, `waitFor:` or reads a channel.
 
 2. **Completion-watch worker** — a dedicated background Pharo process iterates the GLib default
    main context until `isComplete` is set. This is what dispatches GLib's child-watch callback,
@@ -188,7 +202,7 @@ orchestrate its lifecycle. Concretely, when a process is `run`, the following ha
 4. **Drain & completion** — when the child exits, `beCompleted:` first lets the listener threads
    drain their pipes to EOF (waiting on a fixed 5 s timeout, with a diagnostic if it expires), then
    closes the process, sets `isComplete`, and announces completion. This guarantees `stdOut`/
-   `stdErr` are complete when `whenCompletedDo:` fires or `runAndWaitTimeOut:` returns.
+   `stdErr` are complete when `whenCompletedDo:` fires or `waitFor:` returns.
 
 Because these steps run on different threads/processes, the streams are consumed asynchronously:
 when you poll `isComplete`, always assume data may still be settling unless you wait on the actual
@@ -199,20 +213,20 @@ condition you care about (see `waitFor:within:` used by the tests).
 ```smalltalk
 process := SPSProcessConfiguration new
   command: '/bin/ls';
-  sync.
+  asSyncProcess.
 process run.
 self assert: process isComplete.
 ```
 ### Asynchroneous processes: isComplete vs wasTerminated
-With `async` processes, `isComplete` tells whether the child has finished running, whatever the
+With async processes, `isComplete` tells whether the child has finished running, whatever the
 reason. Use `wasTerminated` to know if that finish was caused by your own `terminate` call
 (e.g. because of a timeout):
 ```smalltalk
 process := SPSProcessConfiguration new
   command: '/bin/sleep';
   arguments: #('30');
-  async.
-timedOut := process runAndWaitTimeOut: 1 second.
+  asAsyncProcess.
+timedOut := process waitFor: 1 second.
 self assert: timedOut.
 self assert: process isComplete.      "the process finished"
 self assert: process wasTerminated.   "...because we killed it"
@@ -224,7 +238,7 @@ self assert: process wasTerminated.   "...because we killed it"
 ```smalltalk
 process := SPSProcessConfiguration new
   command: '/bin/ls';
-  sync.
+  asSyncProcess.
 process run.
 self assert: process isSpawnSuccess.
 ```
@@ -232,7 +246,7 @@ self assert: process isSpawnSuccess.
 ```smalltalk
 process := SPSProcessConfiguration new
   command: '/bin/ls';
-  sync.
+  asSyncProcess.
 process run.
 self assert: process isExitSuccess.
 ```
@@ -240,7 +254,7 @@ self assert: process isExitSuccess.
 ```smalltalk
 process := SPSProcessConfiguration new
   command: '/bin/ls';
-  sync.
+  asSyncProcess.
 [ process run ]
 on: SPSError
 do: [ :error | error messageText inspect ]
@@ -253,7 +267,7 @@ SubProcess configure a default encoding (`utf-8` on unix-like systems and `cp-85
 process := SPSProcessConfiguration new
   encoding: 'ISO-8859-2'
   command: '/bin/ls';
-  sync.
+  asSyncProcess.
 process run.
 out := process stdOut.
 ```

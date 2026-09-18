@@ -77,13 +77,40 @@ SubProcess class >> run: aCommand arguments: aCollection [
 			arguments: aCollection)
 ]
 
+{ #category : #'api - running' }
+SubProcess class >> start: aCommand [
+
+	^ self
+		startProcessForConfiguration: (SPSProcessConfiguration new command: aCommand)
+]
+
+{ #category : #'api - running' }
+SubProcess class >> start: aCommand arguments: aCollection [
+
+	^ self
+		startProcessForConfiguration: (SPSProcessConfiguration new
+			command: aCommand;
+			arguments: aCollection)
+]
+
 { #category : #'private - running' }
 SubProcess class >> runProcessForConfiguration: aSPSProcessConfiguration [
 
 	| process |
-	process := aSPSProcessConfiguration sync.
+	process := aSPSProcessConfiguration asSyncProcess.
 	process run.
 	^ process
+]
+
+{ #category : #'private - running' }
+SubProcess class >> startProcessForConfiguration: aSPSProcessConfiguration [
+
+	"Spawn the process described by aSPSProcessConfiguration asynchronously and
+	 return it running. Output collection is enabled by default so stdout/stderr
+	 are available after #wait / #waitFor:."
+
+	aSPSProcessConfiguration collectsOutput.
+	^ aSPSProcessConfiguration asAsyncProcess start
 ]
 
 { #category : #'api - accessing' }

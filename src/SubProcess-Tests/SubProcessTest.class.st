@@ -1,6 +1,6 @@
 "
 I unit test the C-string and byte-decoding helpers of SubProcess, and the public
-SubProcess run: facade.
+SubProcess run: and start: facades.
 "
 Class {
 	#name : #SubProcessTest,
@@ -120,3 +120,81 @@ SubProcessTest >> testRunWithArguments [
 	self assert: process isExitSuccess.
 	self assert: (process stdOut includesSubstring: 'hello').
 ]
+
+{ #category : #tests }
+SubProcessTest >> testStartCollectsOutputByDefault [
+
+	"start: must enable output auto-collection so stdOut/stdErr are available
+	 after #wait without an explicit #collectsOutput."
+
+	self skipIfRunningOnWindows.
+	process := SubProcess start: '/bin/echo' arguments: { 'hello' }.
+	process wait.
+
+	self assert: process isExitSuccess.
+	self assert: (process stdOut includesSubstring: 'hello').
+	self assert: process shouldCollectOutput.
+]
+
+{ #category : #tests }
+SubProcessTest >> testStartForLongRunningReturnsImmediately [
+
+	"A started process must return before the child finishes, so the caller can
+	 observe/control it while it runs."
+
+	self skipIfRunningOnWindows.
+	process := SubProcess start: '/bin/sleep' arguments: { '5' }.
+
+	self assert: process class equals: SPSAsyncProcess.
+	self assert: (process isKindOf: SubProcess).
+	self assert: process isSpawnSuccess.
+	self deny: process isComplete.
+
+	process terminate.
+	self assert: process isComplete.
+	self assert: process wasTerminated.
+]
+
+{ #category : #tests }
+SubProcessTest >> testStartWithArguments [
+
+	self skipIfRunningOnWindows.
+	process := SubProcess start: '/bin/sh' arguments: { '-c'. 'echo hello' }.
+	process wait.
+
+	self assert: process isExitSuccess.
+	self assert: (process stdOut includesSubstring: 'hello').
+]
+
+{ #category : #tests }
+SubProcessTest >> testWaitForReturnsFalseOnCompletion [
+
+	self skipIfRunningOnWindows.
+	process := SubProcess start: '/bin/echo' arguments: { 'hello' }.
+
+	self deny: (process waitFor: 5 seconds).
+	self assert: process isComplete.
+]
+
+{ #category : #tests }
+SubProcessTest >> testWaitDoesNotStartProcess [
+
+	"A #wait on a process that was never started must raise SPSError rather than
+	 blocking forever."
+
+	process := (SPSProcessConfiguration new command: '/bin/echo') asAsyncProcess.
+
+	self should: [ process wait ] raise: SPSError.
+]
+
+{ #category : #tests }
+SubProcessTest >> testWaitForDoesNotStartProcess [
+
+	"A #waitFor: on a process that was never started must raise SPSError rather
+	 than launching it behind the caller's back."
+
+	process := (SPSProcessConfiguration new command: '/bin/echo') asAsyncProcess.
+
+	self should: [ process waitFor: 2 seconds ] raise: SPSError.
+]
+

@@ -14,13 +14,15 @@ The package is organised in three layers:
 ```
 ┌────────────────────────────  Smalltalk  ────────────────────────────┐
 │                                                                      │
-│  SPSProcessConfiguration   (shared configuration: sync/async,        │
-│                             command+args, cwd, encoding, collect)   │
+│  SPSProcessConfiguration   (shared configuration: asSyncProcess/          │
+│                             asAsyncProcess, command+args, cwd, encoding,  │
+│                             collect)                                       │
 │        │                       │                                     │
 │        ▼                       ▼                                     │
 │  SPSSyncProcess         SPSAsyncProcess (async)                      │
 │        └────────────── SubProcess ────────────────┘                  │
-│                        (shared pipe/args/exit helpers + run: facade) │
+│                        (shared pipe/args/exit helpers +              │
+│                         run:/start: facade)                          │
 │                                │                                     │
 │        SPSPipeReader · SPSPipeWriter (line split + collect)          │
 │                                │                                     │
@@ -97,8 +99,13 @@ This gives a flat blocking API: `run`, `stdOut`, `stdErr`, `exitCode`,
 
 ## Async path — `SPSAsyncProcess`
 
-`SPSAsyncProcess run` returns immediately and lets the child run in the
+`SPSAsyncProcess start` returns immediately and lets the child run in the
 background:
+
+The public facade `SubProcess start:` (and `start:arguments:`) builds an
+asynchronous process and enables output auto-collection by default, so `stdOut`
+/ `stdErr` are available after `wait` / `waitFor:` without an explicit
+`collectsOutput`. The fluent configuration path leaves collection opt-in.
 
 * A **watcher process** is forked (`forkAt:` background priority,
   `'SubProcess-completion-watch'`). Each tick it **pumps** the stdout/stderr
@@ -114,7 +121,9 @@ background:
   (`drainOutputToEof`), so collected output is complete: read the cached
   `exitCode` from the handle, signal a `completionSemaphore`, set `isComplete`,
   then `announceCompleted`.
-* `runAndWaitTimeOut:` waits on the semaphore; on timeout it calls `terminate`.
+* `wait` blocks on the semaphore until completion; `waitFor:` waits with a
+  timeout and calls `terminate` on timeout. Both assume the process was already
+  `start`ed and raise `SPSError` otherwise — they never launch the child.
 * `terminate` **hard-kills** the child (`processHandle terminate` →
   SIGKILL on Unix, `TerminateProcess` on Windows, matching GLib's
   `g_subprocess_force_exit`), then does a cooperative shutdown: sets
@@ -147,7 +156,7 @@ background:
 * **Hard-kill on timeout (async and sync), matching GLib `forceExit`.** Async
   `terminate` sends SIGKILL/`TerminateProcess`, then the shutdown sequence
   (stop + reap + close) is cooperative so the watcher exits cleanly and
-  `runAndWaitTimeOut:` never hangs. Sync `terminate` kills the same way
+  `waitFor:` never hangs. Sync `terminate` kills the same way
   (`processHandle terminate`) and is a no-op once complete, so it is safe
   to call in a `tearDown`. Caveat: SIGKILL cannot interrupt a process
   stuck in uninterruptible sleep, but callers still return because

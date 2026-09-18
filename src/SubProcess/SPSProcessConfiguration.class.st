@@ -27,7 +27,7 @@ SPSProcessConfiguration class >> example [
 
 	(self new
 		command: '/bin/ls';
-		sync) run
+		asSyncProcess) run
 ]
 
 { #category : #'api - configuring' }
@@ -59,7 +59,7 @@ SPSProcessConfiguration >> arguments: aCollection [
 ]
 
 { #category : #'api - running' }
-SPSProcessConfiguration >> async [
+SPSProcessConfiguration >> asAsyncProcess [
 
 	^  SPSAsyncProcess withConfiguration: self
 ]
@@ -196,7 +196,7 @@ SPSProcessConfiguration >> assertStdOutIsPiped [
 ]
 
 { #category : #'api - running' }
-SPSProcessConfiguration >> sync [
+SPSProcessConfiguration >> asSyncProcess [
 
 	^  SPSSyncProcess withConfiguration: self
 ]
