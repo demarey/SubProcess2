@@ -157,7 +157,6 @@ SyncSubProcessTest >> testRunningCommandWithMergedStderrCapturesBothOnStdout [
 	| output |
 	self skipIfRunningOnWindows.
 	process := SPSProcessConfiguration new
-		collectsOutput;
 		mergeStandardError;
 		command: '/bin/sh';
 		arguments: { '-c'. 'echo to-stdout; echo to-stderr 1>&2' };

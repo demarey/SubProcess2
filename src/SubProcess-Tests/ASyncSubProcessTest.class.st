@@ -130,7 +130,6 @@ ASyncSubProcessTest >> testAutoCollectedOutput [
 	| out |
 
 	process := (self newProcessConfigurationWithShellCommand: 'echo hello')
-		collectsOutput;
 		asAsyncProcess.
 	
 	process start.
@@ -148,7 +147,6 @@ ASyncSubProcessTest >> testAutoCollectedLargeOutput [
 
 	self skipIfRunningOnWindows.
 	process := (self newProcessConfigurationWithShellCommand: ('seq 1 {1}' format: { self class largeOutputLineCount }))
-		collectsOutput;
 		asAsyncProcess.
 
 	process start.
@@ -202,7 +200,6 @@ ASyncSubProcessTest >> testOutputWithoutNewlinesLargerThanReadBuffer [
 	payloadBytes := self class noNewlinePayloadBytes.
 	self skipIfRunningOnWindows.
 	process := (self newProcessConfigurationWritingBytesWithoutNewlines: payloadBytes)
-		collectsOutput;
 		asAsyncProcess.
 
 	process start.
@@ -228,6 +225,36 @@ ASyncSubProcessTest >> testRunningBasicCommand [
 	out := process stdOutChannel readLine.
 	self deny: out isEmpty.
 
+]
+
+{ #category : #tests }
+ASyncSubProcessTest >> testFluentAsyncCollectsOutputByDefault [
+	| out |
+
+	process := (self newProcessConfigurationWithShellCommand: 'echo hello')
+		asAsyncProcess.
+
+	process start.
+
+	self assert: process shouldCollectOutput.
+	self assert: (self waitForCompletionOf: process).
+	out := process stdOut.
+	self assert: (out includesSubstring: 'hello').
+]
+
+{ #category : #tests }
+ASyncSubProcessTest >> testDoNotCollectOutput [
+
+	process := (self newProcessConfigurationWithShellCommand: 'echo hello')
+		doNotCollectOutput;
+		asAsyncProcess.
+
+	process start.
+
+	self assert: process shouldCollectOutput not.
+	self assert: (self waitForCompletionOf: process).
+	self assert: process stdOut isEmpty.
+	self assert: (process stdOutChannel readLine) notNil.
 ]
 
 { #category : #tests }
@@ -266,7 +293,6 @@ ASyncSubProcessTest >> testRunningCommandWithMergedStderr [
 	| out |
 	self skipIfRunningOnWindows.
 	process := (self newProcessConfigurationWithShellCommand: 'echo to-stdout; echo to-stderr 1>&2')
-		collectsOutput;
 		mergeStandardError;
 		asAsyncProcess.
 

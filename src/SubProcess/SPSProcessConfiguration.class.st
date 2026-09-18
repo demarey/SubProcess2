@@ -65,20 +65,21 @@ SPSProcessConfiguration >> asAsyncProcess [
 ]
 
 { #category : #'api - configuring' }
-SPSProcessConfiguration >> collectsOutput [
+SPSProcessConfiguration >> doNotCollectOutput [
 
-	"Enable asynchroneous output auto-collection. Off by default (see shouldCollectOutput)."
+	"Opt out of asynchroneous output auto-collection: stdOut/stdErr are not buffered.
+	 The raw stdOutChannel/stdErrChannel remain available for streaming reads."
 
-	collectsOutput := true
+	collectsOutput := false
 ]
 
 { #category : #'api - accessing' }
 SPSProcessConfiguration >> shouldCollectOutput [
 
 	"Answer whether asynchroneous processes built from this configuration should auto-collect
-	 their output (stdOut/stdErr). Default is false: output is not captured unless #collectsOutput."
+	 their output (stdOut/stdErr). Default is true: output is captured unless #doNotCollectOutput."
 
-	^ collectsOutput ifNil: [ false ]
+	^ collectsOutput ifNil: [ true ]
 ]
 
 { #category : #'api - accessing' }

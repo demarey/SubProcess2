@@ -114,7 +114,8 @@ process start.
 ```
 
 ### Reading the output with streams
-By default no output is captured. Read directly from the process channels (blocking reads):
+Output auto-collection is on by default (see below), but you can still read
+directly from the process channels (blocking reads):
 ```smalltalk
 process := SPSProcessConfiguration new
   command: '/bin/ls';
@@ -122,9 +123,10 @@ process := SPSProcessConfiguration new
 process start.
 out := process stdOutChannel readLine.
 ```
-WARNING: if the child produces a lot of output, nothing reads the pipes: they fill up, the child
-blocks writing and never finishes. Prefer `collectsOutput` or `outputLineDo:` for output-heavy
-commands.
+WARNING: if you opt out of collection with `doNotCollectOutput` and the child
+produces a lot of output, nothing reads the pipes: they fill up, the child blocks
+writing and never finishes. Prefer the default collection or `outputLineDo:` for
+output-heavy commands.
 
 ### Consuming the output line-by-line (streaming)
 `outputLineDo:` evaluates a block for each output line as it is produced, without buffering the
@@ -139,16 +141,16 @@ process start.
 ```
 
 ### Auto-collecting the output
-By default no output is captured. Call `collectsOutput` on the configuration to capture stdout
-and stderr line-by-line in the background. (The `SubProcess start:` facade does this for you.)
-The collected text is then available on `stdOut` / `stdErr`. When the process completes, the
-output listeners are drained to EOF before completion is announced, so the collected output is
-complete:
+Output auto-collection is **on by default** for async processes: stdout and stderr
+are captured line-by-line in the background, and the collected text is available on
+`stdOut` / `stdErr`. (`SubProcess start:` relies on this too.) When the process
+completes, the output listeners are drained to EOF before completion is announced,
+so the collected output is complete. Call `doNotCollectOutput` to opt out and only
+read the raw channels:
 ```smalltalk
 process := SPSProcessConfiguration new
   command: '/bin/sh';
   arguments: #('-c' 'echo hello');
-  collectsOutput;
   asAsyncProcess.
 process start.
 process waitFor: 2 seconds.
@@ -192,16 +194,14 @@ is `start`ed, the following happen:
    so completion is detected even in a headless image with no running GTK event loop. When the
    child exits, the callback records the exit code.
 
-3. **Output listener threads** — one per channel (stdout, stderr). Each is a forked Pharo process
-   (`Channel read listener: ...`) that runs a `GIOChannelReadLineListener`: it blocks reading lines
-   from its pipe with `g_io_channel_read_line` (on a ThreadedFFI `TFWorker` thread) until EOF, and
-   dispatches each line to the configured action. These threads are what keep the pipes drained, so
-   a child producing lots of output never deadlocks on a full pipe. They are only started when
-   output is read, i.e. with `collectsOutput` or `outputLineDo:` (message `outputsBeingRead`).
+3. **Output draining** — the completion-watch worker pumps the stdout/stderr pipes on
+   each tick and feeds `SPSPipeReader` instances, which split the bytes into lines and
+   dispatch them to the collector (`stdOut`/`stdErr`) and/or the `outputLineDo:` subscriber.
+   This is what keeps the pipes drained, so a child producing lots of output never
+   deadlocks on a full pipe.
 
-4. **Drain & completion** — when the child exits, `beCompleted:` first lets the listener threads
-   drain their pipes to EOF (waiting on a fixed 5 s timeout, with a diagnostic if it expires), then
-   closes the process, sets `isComplete`, and announces completion. This guarantees `stdOut`/
+4. **Drain & completion** — when the child exits, the watcher first lets the pipes drain to
+   EOF, then sets `isComplete` and announces completion. This guarantees `stdOut`/
    `stdErr` are complete when `whenCompletedDo:` fires or `waitFor:` returns.
 
 Because these steps run on different threads/processes, the streams are consumed asynchronously:
@@ -262,7 +262,7 @@ do: [ :error | error messageText inspect ]
 
 ## Encoding
 When running a command that will give you back some output (standard output or standard error), you will get an encoded String (a byte array) that needs to be decoded. SubProcess cannot guess what will be the encoding as many encodings are used worldwide. One commonly used encoding is utf-8 on unix-like systems. On Windows, different encondings are used.
-SubProcess configure a default encoding (`utf-8` on unix-like systems and `cp-850` on Windows) for convenience. Do not forget you could need a different encoding. If so, you can configure it before running the process:
+SubProcess configure a default encoding (`utf-8` on unix-like systems and `cp-1252` on Windows) for convenience. Do not forget you could need a different encoding. If so, you can configure it before running the process:
 ```smalltalk
 process := SPSProcessConfiguration new
   encoding: 'ISO-8859-2'

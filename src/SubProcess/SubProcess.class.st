@@ -105,11 +105,10 @@ SubProcess class >> runProcessForConfiguration: aSPSProcessConfiguration [
 { #category : #'private - running' }
 SubProcess class >> startProcessForConfiguration: aSPSProcessConfiguration [
 
-	"Spawn the process described by aSPSProcessConfiguration asynchronously and
-	 return it running. Output collection is enabled by default so stdout/stderr
-	 are available after #wait / #waitFor:."
+	"Build and start an asynchroneous process from aSPSProcessConfiguration.
+	 Output auto-collection is on by default (see shouldCollectOutput), so
+	 stdOut/stdErr are available after #wait / #waitFor:."
 
-	aSPSProcessConfiguration collectsOutput.
 	^ aSPSProcessConfiguration asAsyncProcess start
 ]
 

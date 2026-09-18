@@ -103,9 +103,10 @@ This gives a flat blocking API: `run`, `stdOut`, `stdErr`, `exitCode`,
 background:
 
 The public facade `SubProcess start:` (and `start:arguments:`) builds an
-asynchronous process and enables output auto-collection by default, so `stdOut`
-/ `stdErr` are available after `wait` / `waitFor:` without an explicit
-`collectsOutput`. The fluent configuration path leaves collection opt-in.
+asynchronous process and returns it running. Asynchroneous processes enable
+output auto-collection **by default** (on both the facade and the fluent
+configuration path), so `stdOut` / `stdErr` are available after `wait` /
+`waitFor:`. `doNotCollectOutput` opts out and leaves only the raw channels.
 
 * A **watcher process** is forked (`forkAt:` background priority,
   `'SubProcess-completion-watch'`). Each tick it **pumps** the stdout/stderr

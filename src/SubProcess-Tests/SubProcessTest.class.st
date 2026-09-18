@@ -124,8 +124,8 @@ SubProcessTest >> testRunWithArguments [
 { #category : #tests }
 SubProcessTest >> testStartCollectsOutputByDefault [
 
-	"start: must enable output auto-collection so stdOut/stdErr are available
-	 after #wait without an explicit #collectsOutput."
+	"Output collection is on by default, so stdOut/stdErr are available
+	 after #wait without an explicit configuration."
 
 	self skipIfRunningOnWindows.
 	process := SubProcess start: '/bin/echo' arguments: { 'hello' }.
