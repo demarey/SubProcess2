@@ -247,7 +247,7 @@ SubProcess >> spawnProcess [
 	 Ownership: SPSStdioPipes closes the child ends and the parent stdin end,
 	 and all ends on failure. parentStdout and parentStderr are handed open to
 	 the hook, which owns closing them (sync reads then closes, async keeps
-	 them as channels)."
+	 them as pipes)."
 
 	| pipes argsBlob cwd errBuf spawnResult |
 	pipes := SPSStdioPipes forSpawnUsing: self ffiLibrary configuration: self configuration.

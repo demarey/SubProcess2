@@ -115,13 +115,13 @@ process start.
 
 ### Reading the output with streams
 Output auto-collection is on by default (see below), but you can still read
-directly from the process channels (blocking reads):
+directly from the process pipes (blocking reads):
 ```smalltalk
 process := SPSProcessConfiguration new
   command: '/bin/ls';
   asAsyncProcess.
 process start.
-out := process stdOutChannel readLine.
+out := process stdOutPipe readLine.
 ```
 WARNING: if you opt out of collection with `doNotCollectOutput` and the child
 produces a lot of output, nothing reads the pipes: they fill up, the child blocks
@@ -146,7 +146,7 @@ are captured line-by-line in the background, and the collected text is available
 `stdOut` / `stdErr`. (`SubProcess start:` relies on this too.) When the process
 completes, the output listeners are drained to EOF before completion is announced,
 so the collected output is complete. Call `doNotCollectOutput` to opt out and only
-read the raw channels:
+read the raw pipes:
 ```smalltalk
 process := SPSProcessConfiguration new
   command: '/bin/sh';
@@ -187,7 +187,7 @@ is `start`ed, the following happen:
 1. **Main (caller) thread** — `start` spawns the child via `g_spawn_async_with_pipes` with
    `G_SPAWN_DO_NOT_REAP_CHILD` (so our watch — and not GLib — reaps the child), then sets up the
    output reading and the completion watch, and returns at once. The caller never blocks unless
-   it explicitly calls `wait`, `waitFor:` or reads a channel.
+   it explicitly calls `wait`, `waitFor:` or reads a pipe.
 
 2. **Completion-watch worker** — a dedicated background Pharo process iterates the GLib default
    main context until `isComplete` is set. This is what dispatches GLib's child-watch callback,

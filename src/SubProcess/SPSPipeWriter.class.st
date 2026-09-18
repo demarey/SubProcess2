@@ -1,6 +1,6 @@
 "
 I model a single writable pipe end used to send input to a spawned child
-process (#stdInChannel). I encode the Strings written to me with a configured
+process (#stdInPipe). I encode the Strings written to me with a configured
 encoding, then write those bytes to the underlying file descriptor.
 "
 Class {

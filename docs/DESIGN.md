@@ -106,7 +106,7 @@ The public facade `SubProcess start:` (and `start:arguments:`) builds an
 asynchronous process and returns it running. Asynchroneous processes enable
 output auto-collection **by default** (on both the facade and the fluent
 configuration path), so `stdOut` / `stdErr` are available after `wait` /
-`waitFor:`. `doNotCollectOutput` opts out and leaves only the raw channels.
+`waitFor:`. `doNotCollectOutput` opts out and leaves only the raw pipes.
 
 * A **watcher process** is forked (`forkAt:` background priority,
   `'SubProcess-completion-watch'`). Each tick it **pumps** the stdout/stderr
@@ -115,7 +115,7 @@ configuration path), so `stdOut` / `stdErr` are available after `wait` /
 * `pumpOutput` reads available bytes and feeds each `SPSPipeReader`, which splits
   them into lines. Depending on configuration, lines go to an `outputLineDo:`
   subscriber and/or a collector `WriteStream` backing `stdOut`/`stdErr`; the raw
-  readers also serve `stdOutChannel`/`stdErrChannel`. All pipe I/O (read/close)
+  readers also serve `stdOutPipe`/`stdErrPipe`. All pipe I/O (read/close)
   goes through `SPSSpawnLibrary`, so the reader/writer code paths are identical
   on every platform.
 * **Completion** is announced only after the pipes are drained to EOF
@@ -129,7 +129,7 @@ configuration path), so `stdOut` / `stdErr` are available after `wait` /
   SIGKILL on Unix, `TerminateProcess` on Windows, matching GLib's
   `g_subprocess_force_exit`), then does a cooperative shutdown: sets
   `stopRequested` so the watcher loop exits deterministically, reaps (blocking
-  `processHandle waitForExit`), closes the channels, and marks complete/signals.
+  `processHandle waitForExit`), closes the pipes, and marks complete/signals.
 
 ## Design choices & tradeoffs
 
@@ -144,7 +144,7 @@ configuration path), so `stdOut` / `stdErr` are available after `wait` /
   A single forked watcher that polls non-blocking fds plus non-blocking
   `sps_wait` is simple and fully portable across Unix/Windows. Tradeoffs: a
   small periodic CPU burn (~every 3 ms) and output latency of roughly one poll
-  tick. It avoids the complexity (and one thread per channel) of ThreadedFFI;
+  tick. It avoids the complexity (and one thread per pipe) of ThreadedFFI;
   `select()` was not exposed through the shim to keep the FFI surface minimal.
 * **One opaque process token everywhere**, surfaced as `SPSProcessHandle`.
   Uniform exit/wait handling across platforms; the handle caches the decoded

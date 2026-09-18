@@ -1,8 +1,8 @@
 "
 I model a single readable pipe end of a spawned child process. Raw bytes are
 fed to me (by the completion watcher) and I split them into lines, which I:
-- buffer so they are available through #readLine (used by #stdOutChannel and
-  #stdErrChannel),
+- buffer so they are available through #readLine (used by #stdOutPipe and
+  #stdErrPipe),
 - append (plus a line separator) to a collector WriteStream when output
   auto-collection is enabled,
 - forward to an #outputLineDo: subscriber when present.

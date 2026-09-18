@@ -68,7 +68,7 @@ SPSProcessConfiguration >> asAsyncProcess [
 SPSProcessConfiguration >> doNotCollectOutput [
 
 	"Opt out of asynchroneous output auto-collection: stdOut/stdErr are not buffered.
-	 The raw stdOutChannel/stdErrChannel remain available for streaming reads."
+	 The raw stdOutPipe/stdErrPipe remain available for streaming reads."
 
 	collectsOutput := false
 ]

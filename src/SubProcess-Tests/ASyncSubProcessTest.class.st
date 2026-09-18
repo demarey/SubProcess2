@@ -222,7 +222,7 @@ ASyncSubProcessTest >> testRunningBasicCommand [
 	
 	process start.
 	
-	out := process stdOutChannel readLine.
+	out := process stdOutPipe readLine.
 	self deny: out isEmpty.
 
 ]
@@ -254,7 +254,7 @@ ASyncSubProcessTest >> testDoNotCollectOutput [
 	self assert: process shouldCollectOutput not.
 	self assert: (self waitForCompletionOf: process).
 	self assert: process stdOut isEmpty.
-	self assert: (process stdOutChannel readLine) notNil.
+	self assert: (process stdOutPipe readLine) notNil.
 ]
 
 { #category : #tests }

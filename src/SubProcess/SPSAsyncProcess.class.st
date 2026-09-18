@@ -10,7 +10,7 @@ and main-context iteration) and, while the child runs, drains its standard
 output and error pipes, feeding them to SPSPipeReader instances. The readers
 stream lines to an `outputLineDo:` subscriber and/or collect them into
 `stdOut`/`stdErr` when auto-collection is enabled, and also serve the raw
-`stdOutChannel`/`stdErrChannel`. Before completion is announced, the pipes are
+`stdOutPipe`/`stdErrPipe`. Before completion is announced, the pipes are
 drained to EOF so the collected output is complete.
 
 I use `SPSProcessConfiguration` to configure myself.
@@ -78,7 +78,7 @@ SPSAsyncProcess >> completionSemaphore [
 { #category : #'private - output' }
 SPSAsyncProcess >> drainOutputToEof [
 
-	[ self bothChannelsAtEof ] whileFalse: [
+	[ self bothPipesAtEof ] whileFalse: [
 		self pumpOutput.
 		(self class drainPollDelay) asDelay wait ]
 ]
@@ -149,7 +149,7 @@ SPSAsyncProcess >> terminate [
 	processHandle ifNotNil: [
 		processHandle terminate.
 		processHandle waitForExit ].
-	self closeOutputChannels.
+	self closeOutputPipes.
 	wasTerminated := true.
 	isComplete := true.
 	completionSemaphore signal.
@@ -212,13 +212,13 @@ SPSAsyncProcess >> stdErr [
 ]
 
 { #category : #'api - accessing' }
-SPSAsyncProcess >> stdErrChannel [
+SPSAsyncProcess >> stdErrPipe [
 
 	^ stdErrPipeReader
 ]
 
 { #category : #'api - accessing' }
-SPSAsyncProcess >> stdInChannel [
+SPSAsyncProcess >> stdInPipe [
 
 	^ stdInWriter ifNil: [ stdInWriter ]
 ]
@@ -230,7 +230,7 @@ SPSAsyncProcess >> stdOut [
 ]
 
 { #category : #'api - accessing' }
-SPSAsyncProcess >> stdOutChannel [
+SPSAsyncProcess >> stdOutPipe [
 
 	^ stdOutPipeReader
 ]
@@ -255,7 +255,7 @@ SPSAsyncProcess >> pumpReader: aReader fromFd: aFd [
 ]
 
 { #category : #'private - output' }
-SPSAsyncProcess >> bothChannelsAtEof [
+SPSAsyncProcess >> bothPipesAtEof [
 
 	^ (stdOutPipeReader isNil or: [ stdOutPipeReader isEof ])
 		and: [ stdErrPipeReader isNil or: [ stdErrPipeReader isEof ] ]
@@ -313,7 +313,7 @@ SPSAsyncProcess >> signalSpawnError: aByteArrayOrString code: anInteger [
 ]
 
 { #category : #'private - output' }
-SPSAsyncProcess >> closeOutputChannels [
+SPSAsyncProcess >> closeOutputPipes [
 
 	stdOutPipeReader ifNotNil: [ stdOutPipeReader close. stdOutPipeReader := nil ].
 	stdErrPipeReader ifNotNil: [ stdErrPipeReader close. stdErrPipeReader := nil ].
